@@ -56,6 +56,13 @@ static const std::vector<const char*> validationLayers = {
 
 static const std::vector<const char*> deviceExtensions = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME,
+	VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+	VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+	VK_EXT_MEMORY_BUDGET_EXTENSION_NAME,
+	VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
+	VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
+	VK_KHR_SPIRV_1_4_EXTENSION_NAME,
 };
 
 constexpr uint32_t USAGES_POLL_INTERVAL = 5000;
@@ -637,10 +644,7 @@ void Graphics::setFrontFaceWinding(Winding winding)
 
 	states.back().winding = winding;
 
-	if (optionalDeviceFeatures.extendedDynamicState)
-		vkCmdSetFrontFaceEXT(
-			commandBuffers.at(currentFrame),
-			Vulkan::getFrontFace(winding));
+	vkCmdSetFrontFaceEXT(commandBuffers.at(currentFrame), Vulkan::getFrontFace(winding));
 }
 
 void Graphics::setColorMask(ColorChannelMask mask)
@@ -847,12 +851,7 @@ void Graphics::setStencilMode(StencilAction action, CompareMode compare, int val
 	vkCmdSetStencilCompareMask(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, readmask);
 	vkCmdSetStencilReference(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, value);
 
-	if (optionalDeviceFeatures.extendedDynamicState)
-		vkCmdSetStencilOpEXT(
-			commandBuffers.at(currentFrame),
-			VK_STENCIL_FRONT_AND_BACK,
-			VK_STENCIL_OP_KEEP, Vulkan::getStencilOp(action),
-			VK_STENCIL_OP_KEEP, Vulkan::getCompareOp(getReversedCompareMode(compare)));
+	vkCmdSetStencilOpEXT(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, VK_STENCIL_OP_KEEP, Vulkan::getStencilOp(action), VK_STENCIL_OP_KEEP, Vulkan::getCompareOp(getReversedCompareMode(compare)));
 
 	states.back().stencil.action = action;
 	states.back().stencil.compare = compare;
@@ -865,14 +864,8 @@ void Graphics::setDepthMode(CompareMode compare, bool write)
 {
 	flushBatchedDraws();
 
-	if (optionalDeviceFeatures.extendedDynamicState)
-	{
-		vkCmdSetDepthCompareOpEXT(
-			commandBuffers.at(currentFrame), Vulkan::getCompareOp(compare));
-
-		vkCmdSetDepthWriteEnableEXT(
-			commandBuffers.at(currentFrame), Vulkan::getBool(write));
-	}
+	vkCmdSetDepthCompareOpEXT(commandBuffers.at(currentFrame), Vulkan::getCompareOp(compare));
+	vkCmdSetDepthWriteEnableEXT(commandBuffers.at(currentFrame), Vulkan::getBool(write));
 
 	states.back().depthTest = compare;
 	states.back().depthWrite = write;
@@ -1051,24 +1044,10 @@ void Graphics::initDynamicState()
 	vkCmdSetStencilWriteMask(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, states.back().stencil.writeMask);
 	vkCmdSetStencilCompareMask(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, states.back().stencil.readMask);
 	vkCmdSetStencilReference(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, states.back().stencil.value);
-
-	if (optionalDeviceFeatures.extendedDynamicState)
-	{
-		 vkCmdSetStencilOpEXT(
-			commandBuffers.at(currentFrame),
-			VK_STENCIL_FRONT_AND_BACK,
-			VK_STENCIL_OP_KEEP, Vulkan::getStencilOp(states.back().stencil.action),
-			VK_STENCIL_OP_KEEP, Vulkan::getCompareOp(getReversedCompareMode(states.back().stencil.compare)));
-
-		vkCmdSetDepthCompareOpEXT(
-			commandBuffers.at(currentFrame), Vulkan::getCompareOp(states.back().depthTest));
-
-		vkCmdSetDepthWriteEnableEXT(
-			commandBuffers.at(currentFrame), Vulkan::getBool(states.back().depthWrite));
-
-		vkCmdSetFrontFaceEXT(
-			commandBuffers.at(currentFrame), Vulkan::getFrontFace(states.back().winding));
-	}
+	vkCmdSetStencilOpEXT(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, VK_STENCIL_OP_KEEP, Vulkan::getStencilOp(states.back().stencil.action), VK_STENCIL_OP_KEEP, Vulkan::getCompareOp(getReversedCompareMode(states.back().stencil.compare)));
+	vkCmdSetDepthCompareOpEXT(commandBuffers.at(currentFrame), Vulkan::getCompareOp(states.back().depthTest));
+	vkCmdSetDepthWriteEnableEXT(commandBuffers.at(currentFrame), Vulkan::getBool(states.back().depthWrite));
+	vkCmdSetFrontFaceEXT(commandBuffers.at(currentFrame), Vulkan::getFrontFace(states.back().winding));
 }
 
 void Graphics::beginFrame()
@@ -1229,28 +1208,6 @@ graphics::Shader::BuiltinUniformData Graphics::getCurrentBuiltinUniformData()
 	return data;
 }
 
-const OptionalDeviceFeatures &Graphics::getEnabledOptionalDeviceExtensions() const
-{
-	return optionalDeviceFeatures;
-}
-
-static void checkOptionalInstanceExtensions(OptionalInstanceExtensions &ext)
-{
-	uint32_t count;
-
-	vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
-
-	std::vector<VkExtensionProperties> extensions(count);
-
-	vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.data());
-
-	for (const auto &extension : extensions)
-	{
-		if (strcmp(extension.extensionName, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME) == 0)
-			ext.physicalDeviceProperties2 = true;
-	}
-}
-
 void Graphics::createVulkanInstance()
 {
 	if (isDebugEnabled() && !checkValidationSupport())
@@ -1275,12 +1232,9 @@ void Graphics::createVulkanInstance()
 	if (SDL_Vulkan_GetInstanceExtensions(nullptr, &count, nullptr) != SDL_TRUE)
 		throw love::Exception("couldn't retrieve sdl vulkan extensions");
 
-	std::vector<const char*> extensions = {};
-
-	checkOptionalInstanceExtensions(optionalInstanceExtensions);
-
-	if (optionalInstanceExtensions.physicalDeviceProperties2)
-		extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+	std::vector<const char*> extensions = {
+		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+	};
 
 	size_t additional_extension_count = extensions.size();
 	extensions.resize(additional_extension_count + count);
@@ -1402,6 +1356,9 @@ int Graphics::rateDeviceSuitability(VkPhysicalDevice device)
 
 	// definitely needed
 
+	if (deviceProperties.apiVersion < VK_API_VERSION_1_3)
+		score = 0;
+
 	QueueFamilyIndices indices = findQueueFamilies(device);
 	if (!indices.isComplete())
 		score = 0;
@@ -1458,33 +1415,6 @@ QueueFamilyIndices Graphics::findQueueFamilies(VkPhysicalDevice device)
 	return indices;
 }
 
-static void findOptionalDeviceExtensions(VkPhysicalDevice physicalDevice, OptionalDeviceFeatures &optionalDeviceFeatures)
-{
-	uint32_t extensionCount;
-	vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
-
-	std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-	vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, availableExtensions.data());
-
-	for (const auto &extension : availableExtensions)
-	{
-		if (strcmp(extension.extensionName, VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME) == 0)
-			optionalDeviceFeatures.extendedDynamicState = true;
-		if (strcmp(extension.extensionName, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME) == 0)
-			optionalDeviceFeatures.memoryRequirements2 = true;
-		if (strcmp(extension.extensionName, VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME) == 0)
-			optionalDeviceFeatures.dedicatedAllocation = true;
-		if (strcmp(extension.extensionName, VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) == 0)
-			optionalDeviceFeatures.bufferDeviceAddress = true;
-		if (strcmp(extension.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0)
-			optionalDeviceFeatures.memoryBudget = true;
-		if (strcmp(extension.extensionName, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME) == 0)
-			optionalDeviceFeatures.shaderFloatControls = true;
-		if (strcmp(extension.extensionName, VK_KHR_SPIRV_1_4_EXTENSION_NAME) == 0)
-			optionalDeviceFeatures.spirv14 = true;
-	}
-}
-
 void Graphics::createLogicalDevice()
 {
 	QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
@@ -1506,23 +1436,6 @@ void Graphics::createLogicalDevice()
 		queueCreateInfos.push_back(queueCreateInfo);
 	}
 
-	findOptionalDeviceExtensions(physicalDevice, optionalDeviceFeatures);
-
-	// sanity check for dependencies.
-
-	if (optionalDeviceFeatures.extendedDynamicState && !optionalInstanceExtensions.physicalDeviceProperties2)
-		optionalDeviceFeatures.extendedDynamicState = false;
-	if (optionalDeviceFeatures.dedicatedAllocation && !optionalDeviceFeatures.memoryRequirements2)
-		optionalDeviceFeatures.dedicatedAllocation = false;
-	if (optionalDeviceFeatures.bufferDeviceAddress && !optionalInstanceExtensions.physicalDeviceProperties2)
-		optionalDeviceFeatures.bufferDeviceAddress = false;
-	if (optionalDeviceFeatures.memoryBudget && !optionalInstanceExtensions.physicalDeviceProperties2)
-		optionalDeviceFeatures.memoryBudget = false;
-	if (optionalDeviceFeatures.spirv14 && !optionalDeviceFeatures.shaderFloatControls)
-		optionalDeviceFeatures.spirv14 = false;
-	if (optionalDeviceFeatures.spirv14 && deviceApiVersion < VK_API_VERSION_1_1)
-		optionalDeviceFeatures.spirv14 = false;
-
 	VkPhysicalDeviceFeatures deviceFeatures{};
 	deviceFeatures.samplerAnisotropy = VK_TRUE;
 	deviceFeatures.fillModeNonSolid = VK_TRUE;
@@ -1532,38 +1445,18 @@ void Graphics::createLogicalDevice()
 	createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 	createInfo.pQueueCreateInfos = queueCreateInfos.data();
 	createInfo.pEnabledFeatures = &deviceFeatures;
+	createInfo.enabledExtensionCount = deviceExtensions.size();
+	createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
-	std::vector<const char*> enabledExtensions(deviceExtensions.begin(), deviceExtensions.end());
-	if (optionalDeviceFeatures.extendedDynamicState)
-		enabledExtensions.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
-	if (optionalDeviceFeatures.memoryRequirements2)
-		enabledExtensions.push_back(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
-	if (optionalDeviceFeatures.dedicatedAllocation)
-		enabledExtensions.push_back(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME);
-	if (optionalDeviceFeatures.bufferDeviceAddress)
-		enabledExtensions.push_back(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
-	if (optionalDeviceFeatures.memoryBudget)
-		enabledExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
-	if (optionalDeviceFeatures.shaderFloatControls)
-		enabledExtensions.push_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
-	if (optionalDeviceFeatures.spirv14)
-		enabledExtensions.push_back(VK_KHR_SPIRV_1_4_EXTENSION_NAME);
-	if (deviceApiVersion >= VK_API_VERSION_1_1)
-		enabledExtensions.push_back(VK_KHR_BIND_MEMORY_2_EXTENSION_NAME);
-
-	createInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
-	createInfo.ppEnabledExtensionNames = enabledExtensions.data();
-
-	if (isDebugEnabled())
-	{
-		createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-		createInfo.ppEnabledLayerNames = validationLayers.data();
-	}
+	VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeature{};
+	dynamicRenderingFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+	dynamicRenderingFeature.dynamicRendering = VK_TRUE;
+	dynamicRenderingFeature.pNext = nullptr;
 
 	VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures{};
 	extendedDynamicStateFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
-	extendedDynamicStateFeatures.extendedDynamicState = Vulkan::getBool(optionalDeviceFeatures.extendedDynamicState);
-	extendedDynamicStateFeatures.pNext = nullptr;
+	extendedDynamicStateFeatures.extendedDynamicState = VK_TRUE;
+	extendedDynamicStateFeatures.pNext = &dynamicRenderingFeature;
 
 	createInfo.pNext = &extendedDynamicStateFeatures;
 
@@ -1626,10 +1519,8 @@ void Graphics::initVMA()
 	allocatorCreateInfo.pVulkanFunctions = &vulkanFunctions;
 
 	allocatorCreateInfo.flags |= VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
-	if (optionalDeviceFeatures.dedicatedAllocation)
-		allocatorCreateInfo.flags |= VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT;
-	if (optionalDeviceFeatures.memoryBudget)
-		allocatorCreateInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+	allocatorCreateInfo.flags |= VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT;
+	allocatorCreateInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
 
 	if (vmaCreateAllocator(&allocatorCreateInfo, &vmaAllocator) != VK_SUCCESS)
 		throw love::Exception("failed to create vma allocator");
@@ -2242,17 +2133,7 @@ void Graphics::prepareDraw(const VertexAttributes &attributes, const BufferBindi
 	configuration.numColorAttachments = renderPassState.numColorAttachments;
 	configuration.primitiveType = primitiveType;
 
-	if (optionalDeviceFeatures.extendedDynamicState)
-		vkCmdSetCullModeEXT(commandBuffers.at(currentFrame), Vulkan::getCullMode(cullmode));
-	else
-	{
-		configuration.dynamicState.winding = states.back().winding;
-		configuration.dynamicState.depthState.compare = states.back().depthTest;
-		configuration.dynamicState.depthState.write = states.back().depthWrite;
-		configuration.dynamicState.stencilAction = states.back().stencil.action;
-		configuration.dynamicState.stencilCompare = states.back().stencil.compare;
-		configuration.dynamicState.cullmode = cullmode;
-	}
+	vkCmdSetCullModeEXT(commandBuffers.at(currentFrame), Vulkan::getCullMode(cullmode));
 
 	std::vector<VkBuffer> bufferVector;
 	std::vector<VkDeviceSize> offsets;
@@ -2540,11 +2421,6 @@ VkPipeline Graphics::createGraphicsPipeline(GraphicsPipelineConfiguration &confi
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
 	rasterizer.polygonMode = Vulkan::getPolygonMode(configuration.wireFrame);
 	rasterizer.lineWidth = 1.0f;
-	if (!optionalDeviceFeatures.extendedDynamicState)
-	{
-		rasterizer.cullMode = Vulkan::getCullMode(configuration.dynamicState.cullmode);
-		rasterizer.frontFace = Vulkan::getFrontFace(configuration.dynamicState.winding);
-	}
 
 	rasterizer.depthBiasEnable = VK_FALSE;
 	rasterizer.depthBiasConstantFactor = 0.0f;
@@ -2559,29 +2435,11 @@ VkPipeline Graphics::createGraphicsPipeline(GraphicsPipelineConfiguration &confi
 	VkPipelineDepthStencilStateCreateInfo depthStencil{};
 	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 	depthStencil.depthTestEnable = VK_TRUE;
-	if (!optionalDeviceFeatures.extendedDynamicState)
-	{
-		depthStencil.depthWriteEnable = Vulkan::getBool(configuration.dynamicState.depthState.write);
-		depthStencil.depthCompareOp = Vulkan::getCompareOp(configuration.dynamicState.depthState.compare);
-	}
 	depthStencil.depthBoundsTestEnable = VK_FALSE;
 	depthStencil.minDepthBounds = 0.0f;
 	depthStencil.maxDepthBounds = 1.0f;
 
 	depthStencil.stencilTestEnable = VK_TRUE;
-
-	if (!optionalDeviceFeatures.extendedDynamicState)
-	{
-		depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
-		depthStencil.front.passOp = Vulkan::getStencilOp(configuration.dynamicState.stencilAction);
-		depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
-		depthStencil.front.compareOp = Vulkan::getCompareOp(getReversedCompareMode(configuration.dynamicState.stencilCompare));
-
-		depthStencil.back.failOp = VK_STENCIL_OP_KEEP;
-		depthStencil.back.passOp = Vulkan::getStencilOp(configuration.dynamicState.stencilAction);
-		depthStencil.back.depthFailOp = VK_STENCIL_OP_KEEP;
-		depthStencil.back.compareOp = Vulkan::getCompareOp(getReversedCompareMode(configuration.dynamicState.stencilCompare));
-	}
 
 	pipelineInfo.pDepthStencilState = &depthStencil;
 
@@ -2608,30 +2466,19 @@ VkPipeline Graphics::createGraphicsPipeline(GraphicsPipelineConfiguration &confi
 	colorBlending.blendConstants[2] = 0.0f;
 	colorBlending.blendConstants[3] = 0.0f;
 
-	std::vector<VkDynamicState> dynamicStates;
+	std::vector<VkDynamicState> dynamicStates = {
+		VK_DYNAMIC_STATE_SCISSOR,
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
+		VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
+		VK_DYNAMIC_STATE_STENCIL_REFERENCE,
 
-	if (optionalDeviceFeatures.extendedDynamicState)
-		dynamicStates = {
-			VK_DYNAMIC_STATE_SCISSOR,
-			VK_DYNAMIC_STATE_VIEWPORT,
-			VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-
-			VK_DYNAMIC_STATE_CULL_MODE_EXT,
-			VK_DYNAMIC_STATE_FRONT_FACE_EXT,
-			VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE_EXT,
-			VK_DYNAMIC_STATE_DEPTH_COMPARE_OP_EXT,
-			VK_DYNAMIC_STATE_STENCIL_OP_EXT,
-		};
-	else
-		dynamicStates = {
-			VK_DYNAMIC_STATE_SCISSOR,
-			VK_DYNAMIC_STATE_VIEWPORT,
-			VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-		};
+		VK_DYNAMIC_STATE_CULL_MODE_EXT,
+		VK_DYNAMIC_STATE_FRONT_FACE_EXT,
+		VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE_EXT,
+		VK_DYNAMIC_STATE_DEPTH_COMPARE_OP_EXT,
+		VK_DYNAMIC_STATE_STENCIL_OP_EXT,
+	};
 
 	VkPipelineDynamicStateCreateInfo dynamicState{};
 	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;

@@ -124,36 +124,6 @@ struct FramebufferConfigurationHasher
 	}
 };
 
-struct OptionalInstanceExtensions
-{
-	// VK_KHR_get_physical_device_properties2
-	bool physicalDeviceProperties2 = false;
-};
-
-struct OptionalDeviceFeatures
-{
-	// VK_EXT_extended_dynamic_state
-	bool extendedDynamicState = false;
-
-	// VK_KHR_get_memory_requirements2
-	bool memoryRequirements2 = false;
-
-	// VK_KHR_dedicated_allocation
-	bool dedicatedAllocation = false;
-
-	// VK_KHR_buffer_device_address
-	bool bufferDeviceAddress = false;
-
-	// VK_EXT_memory_budget
-	bool memoryBudget = false;
-
-	// VK_KHR_shader_float_controls
-	bool shaderFloatControls = false;
-
-	// VK_KHR_spirv_1_4
-	bool spirv14 = false;
-};
-
 struct GraphicsPipelineConfiguration
 {
 	VkRenderPass renderPass;
@@ -165,15 +135,6 @@ struct GraphicsPipelineConfiguration
 	VkSampleCountFlagBits msaaSamples;
 	uint32_t numColorAttachments;
 	PrimitiveType primitiveType;
-
-	struct DynamicState
-	{
-		CullMode cullmode = CULL_NONE;
-		Winding winding = WINDING_MAX_ENUM;
-		StencilAction stencilAction = STENCIL_MAX_ENUM;
-		CompareMode stencilCompare = COMPARE_MAX_ENUM;
-		DepthState depthState{};
-	} dynamicState;
 
 	GraphicsPipelineConfiguration()
 	{
@@ -294,7 +255,6 @@ public:
 	VkSampler getCachedSampler(const SamplerState &sampler);
 	void setComputeShader(Shader *computeShader);
 	graphics::Shader::BuiltinUniformData getCurrentBuiltinUniformData();
-	const OptionalDeviceFeatures &getEnabledOptionalDeviceExtensions() const;
 	VkSampleCountFlagBits getMsaaCount(int requestedMsaa) const;
 	void setVsync(int vsync);
 	int getVsync() const;
@@ -373,8 +333,6 @@ private:
 	bool windowHasStencil = false;
 	int requestedMsaa = 0;
 	VkDevice device = VK_NULL_HANDLE; 
-	OptionalInstanceExtensions optionalInstanceExtensions;
-	OptionalDeviceFeatures optionalDeviceFeatures;
 	VkQueue graphicsQueue = VK_NULL_HANDLE;
 	VkQueue presentQueue = VK_NULL_HANDLE;
 	VkSurfaceKHR surface = VK_NULL_HANDLE;
