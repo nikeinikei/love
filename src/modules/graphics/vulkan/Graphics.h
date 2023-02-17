@@ -46,27 +46,43 @@ namespace graphics
 namespace vulkan
 {
 
-struct RenderPassAttachment
+struct ColorAttachment
 {
 	VkFormat format = VK_FORMAT_UNDEFINED;
-	bool discard = true;
+	VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
 
-	bool operator==(const RenderPassAttachment &attachment) const
+	bool operator==(const ColorAttachment &attachment) const
 	{
 		return format == attachment.format && 
-			discard == attachment.discard && 
+			loadOp == attachment.loadOp &&
+			msaaSamples == attachment.msaaSamples;
+	}
+};
+
+struct DepthStencilAttachment
+{
+	VkFormat format = VK_FORMAT_UNDEFINED;
+	VkAttachmentLoadOp depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	VkAttachmentLoadOp stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+
+	bool operator==(const DepthStencilAttachment &attachment) const
+	{
+		return format == attachment.format &&
+			depthLoadOp == attachment.depthLoadOp &&
+			stencilLoadOp == attachment.stencilLoadOp &&
 			msaaSamples == attachment.msaaSamples;
 	}
 };
 
 struct RenderPassConfiguration
 {
-	std::vector<RenderPassAttachment> colorAttachments;
+	std::vector<ColorAttachment> colorAttachments;
 
 	struct StaticRenderPassConfiguration
 	{
-		RenderPassAttachment depthAttachment;
+		DepthStencilAttachment depthStencilAttachment;
 		bool resolve = false;
 	} staticData;
 
@@ -82,7 +98,7 @@ struct RenderPassConfigurationHasher
 	size_t operator()(const RenderPassConfiguration &configuration) const
 	{
 		size_t hashes[] = { 
-			XXH32(configuration.colorAttachments.data(), configuration.colorAttachments.size() * sizeof(RenderPassAttachment), 0),
+			XXH32(configuration.colorAttachments.data(), configuration.colorAttachments.size() * sizeof(ColorAttachment), 0),
 			XXH32(&configuration.staticData, sizeof(configuration.staticData), 0),
 		};
 		return XXH32(hashes, sizeof(hashes), 0);
@@ -177,7 +193,7 @@ struct RenderpassState
 {
 	bool active = false;
 	VkRenderPassBeginInfo beginInfo{};
-	bool useConfigurations = false;
+	bool isWindow = false;
 	RenderPassConfiguration renderPassConfiguration{};
 	FramebufferConfiguration framebufferConfiguration{};
 	VkPipeline pipeline = VK_NULL_HANDLE;
@@ -186,6 +202,12 @@ struct RenderpassState
 	float width = 0.0f;
 	float height = 0.0f;
 	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
+	std::vector<VkClearValue> clearColors;
+
+	bool windowClearRequested = false;
+	OptionalColorD mainWindowClearColorValue;
+	OptionalDouble mainWindowClearDepthValue;
+	OptionalInt mainWindowClearStencilValue;
 };
 
 struct ScreenshotReadbackBuffer
@@ -263,7 +285,8 @@ protected:
 	graphics::ShaderStage *newShaderStageInternal(ShaderStageType stage, const std::string &cachekey, const std::string &source, bool gles) override;
 	graphics::Shader *newShaderInternal(StrongRef<love::graphics::ShaderStage> stages[SHADERSTAGE_MAX_ENUM]) override;
 	graphics::StreamBuffer *newStreamBuffer(BufferUsage type, size_t size) override;
-	bool dispatch(int x, int y, int z) override;
+	bool dispatch(love::graphics::Shader *shader, int x, int y, int z) override;
+	bool dispatch(love::graphics::Shader *shader, love::graphics::Buffer *indirectargs, size_t argsoffset) override;
 	void initCapabilities() override;
 	void getAPIStats(int &shaderswitches) const override;
 	void setRenderTargetsInternal(const RenderTargets &rts, int pixelw, int pixelh, bool hasSRGBtexture) override;
@@ -287,12 +310,11 @@ private:
 	void createSwapChain();
 	void createImageViews();
 	void createScreenshotCallbackBuffers();
-	void createDefaultRenderPass();
-	void createDefaultFramebuffers();
 	VkFramebuffer createFramebuffer(FramebufferConfiguration &configuration);
 	VkFramebuffer getFramebuffer(FramebufferConfiguration &configuration);
 	void createDefaultShaders();
 	VkRenderPass createRenderPass(RenderPassConfiguration &configuration);
+	VkRenderPass getRenderPass(RenderPassConfiguration &configuration);
 	VkPipeline createGraphicsPipeline(GraphicsPipelineConfiguration &configuration);
 	void createColorResources();
 	VkFormat findSupportedFormat(const std::vector<VkFormat> &candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
@@ -341,6 +363,7 @@ private:
 	Matrix4 displayRotation;
 	std::vector<VkImage> swapChainImages;
 	VkFormat swapChainImageFormat = VK_FORMAT_UNDEFINED;
+	VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
 	VkExtent2D swapChainExtent = VkExtent2D();
 	std::vector<VkImageView> swapChainImageViews;
 	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
@@ -350,9 +373,7 @@ private:
 	VkImage depthImage = VK_NULL_HANDLE;
 	VkImageView depthImageView = VK_NULL_HANDLE;
 	VmaAllocation depthImageAllocation = VK_NULL_HANDLE;
-	VkRenderPass defaultRenderPass = VK_NULL_HANDLE;
 	VkPipelineCache pipelineCache = VK_NULL_HANDLE;
-	std::vector<VkFramebuffer> defaultFramebuffers;
 	std::unordered_map<RenderPassConfiguration, VkRenderPass, RenderPassConfigurationHasher> renderPasses;
 	std::unordered_map<FramebufferConfiguration, VkFramebuffer, FramebufferConfigurationHasher> framebuffers;
 	std::unordered_map<GraphicsPipelineConfiguration, VkPipeline, GraphicsPipelineConfigurationHasher> graphicsPipelines;
