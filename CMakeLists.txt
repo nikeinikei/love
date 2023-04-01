@@ -89,7 +89,7 @@ if(MEGA)
 	# LOVE_INCLUDE_DIRS contains the search directories for #include. It's mostly
 	# not needed for MEGA builds, since almost all the libraries (except LuaJIT)
 	# are CMake targets, causing include paths to be added automatically.
-	set(LOVE_INCLUDE_DIRS)
+	set(LOVE_INCLUDE_DIRS src/libraries/vulkanheaders)
 
 	if(APPLE)
 		# Some files do #include <SDL2/SDL.h>, but building with megasource
@@ -1811,46 +1811,6 @@ set(LOVE_SRC_3P_VOLK
 
 # since we don't want to use the system vulkan header files we need to 
 # compile this library in the löve source code using VOLK_IMPLEMENTATION.
-
-#
-# vulkan headers
-#
-
-set(LOVE_SRC_3P_VULKAN_HEADERS
-	src/libraries/vulkanheaders/vk_icd.h
-	src/libraries/vulkanheaders/vk_layer.h
-	src/libraries/vulkanheaders/vk_platform.h
-	src/libraries/vulkanheaders/vk_sdk-platform.h
-	src/libraries/vulkanheaders/vulkan_android.h
-	src/libraries/vulkanheaders/vulkan_beta.h
-	src/libraries/vulkanheaders/vulkan_core.h
-	src/libraries/vulkanheaders/vulkan_directfb.h
-	src/libraries/vulkanheaders/vulkan_enums.hpp
-	src/libraries/vulkanheaders/vulkan_format_traits.hpp
-	src/libraries/vulkanheaders/vulkan_fuchsia.h
-	src/libraries/vulkanheaders/vulkan_funcs.h
-	src/libraries/vulkanheaders/vulkan_ggp.h
-	src/libraries/vulkanheaders/vulkan_handles.h
-	src/libraries/vulkanheaders/vulkan_hash.hpp
-	src/libraries/vulkanheaders/vulkan_ios.h
-	src/libraries/vulkanheaders/vulkan_macos.h
-	src/libraries/vulkanheaders/vulkan_metal.h
-	src/libraries/vulkanheaders/vulkan_raii.hpp
-	src/libraries/vulkanheaders/vulkan_screen.h
-	src/libraries/vulkanheaders/vulkan_static_assertions.h
-	src/libraries/vulkanheaders/vulkan_structs.hpp
-	src/libraries/vulkanheaders/vulkan_to_string.h
-	src/libraries/vulkanheaders/vulkan_vi.h
-	src/libraries/vulkanheaders/vulkan_wayland.h
-	src/libraries/vulkanheaders/vulkan_win32.h
-	src/libraries/vulkanheaders/vulkan_xcb.h
-	src/libraries/vulkanheaders/vulkan_xlib_xrandr.h
-	src/libraries/vulkanheaders/vulkan_xlib.h
-	src/libraries/vulkanheaders/vulkan.h
-	src/libraries/vulkanheaders/vulkan.hpp
-)
-
-# vulkan headers has no implementation files of its own.
 
 #
 # Wuff
