@@ -67,8 +67,6 @@ static const std::vector<const char*> deviceExtensions = {
 	VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
 };
 
-constexpr uint32_t USAGES_POLL_INTERVAL = 5000;
-
 const char *Graphics::getName() const
 {
 	return "love.graphics.vulkan";
@@ -515,7 +513,6 @@ void Graphics::present(void *screenshotCallbackdata)
 	updatePendingReadbacks();
 	updateTemporaryResources();
 
-	frameCounter++;
 	currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
 	beginFrame();
@@ -590,6 +587,7 @@ bool Graphics::setMode(void *context, int width, int height, int pixelwidth, int
 	createDefaultTexture();
 	createDefaultShaders();
 	Shader::current = Shader::standardShaders[Shader::StandardShader::STANDARD_DEFAULT];
+	Shader::current->attach();
 	createQuadIndexBuffer();
 	createFanIndexBuffer();
 
@@ -597,7 +595,6 @@ bool Graphics::setMode(void *context, int width, int height, int pixelwidth, int
 
 	Vulkan::resetShaderSwitches();
 
-	frameCounter = 0;
 	currentFrame = 0;
 	created = true;
 	drawCalls = 0;
@@ -1152,13 +1149,6 @@ void Graphics::beginFrame()
 {
 	vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
-	if (frameCounter >= USAGES_POLL_INTERVAL)
-	{
-		vkDeviceWaitIdle(device);
-		cleanupUnusedObjects();
-		frameCounter = 0;
-	}
-
 	while (true)
 	{
 		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
@@ -1214,6 +1204,9 @@ void Graphics::beginFrame()
 	for (const auto shader : usedShadersInFrame)
 		shader->newFrame();
 	usedShadersInFrame.clear();
+
+	if (Shader::current)
+		Shader::current->attach();
 }
 
 void Graphics::startRecordingGraphicsCommands()
@@ -1480,6 +1473,8 @@ int Graphics::rateDeviceSuitability(VkPhysicalDevice device)
 	if (!deviceFeatures.fillModeNonSolid)
 		score = 0;
 
+
+
 	return score;
 }
 
@@ -1535,29 +1530,34 @@ void Graphics::createLogicalDevice()
 		queueCreateInfos.push_back(queueCreateInfo);
 	}
 
-	VkPhysicalDeviceFeatures deviceFeatures{};
-	deviceFeatures.samplerAnisotropy = VK_TRUE;
-	deviceFeatures.fillModeNonSolid = VK_TRUE;
-
 	VkDeviceCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 	createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 	createInfo.pQueueCreateInfos = queueCreateInfos.data();
-	createInfo.pEnabledFeatures = &deviceFeatures;
 	createInfo.enabledExtensionCount = deviceExtensions.size();
 	createInfo.ppEnabledExtensionNames = deviceExtensions.data();
+
+	VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeature{};
+	shaderObjectFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT;
+	shaderObjectFeature.shaderObject = VK_TRUE;
 
 	VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeature{};
 	dynamicRenderingFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
 	dynamicRenderingFeature.dynamicRendering = VK_TRUE;
-	dynamicRenderingFeature.pNext = nullptr;
+	dynamicRenderingFeature.pNext = &shaderObjectFeature;
 
 	VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures{};
 	extendedDynamicStateFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
 	extendedDynamicStateFeatures.extendedDynamicState = VK_TRUE;
 	extendedDynamicStateFeatures.pNext = &dynamicRenderingFeature;
 
-	createInfo.pNext = &extendedDynamicStateFeatures;
+	VkPhysicalDeviceFeatures2 deviceFeatures{};
+	deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+	deviceFeatures.features.samplerAnisotropy = VK_TRUE;
+	deviceFeatures.features.fillModeNonSolid = VK_TRUE;
+	deviceFeatures.pNext = &extendedDynamicStateFeatures;
+
+	createInfo.pNext = &deviceFeatures;
 
 	if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS)
 		throw love::Exception("failed to create logical device");
@@ -2114,8 +2114,8 @@ bool Graphics::usesConstantVertexColor(const VertexAttributes &vertexAttributes)
 
 void Graphics::createVulkanVertexFormat(
 	VertexAttributes vertexAttributes,
-	std::vector<VkVertexInputBindingDescription> &bindingDescriptions,
-	std::vector<VkVertexInputAttributeDescription> &attributeDescriptions)
+	std::vector<VkVertexInputBindingDescription2EXT>& bindingDescriptions,
+	std::vector<VkVertexInputAttributeDescription2EXT>& attributeDescriptions)
 {
 	std::set<uint32_t> usedBuffers;
 
@@ -2141,7 +2141,7 @@ void Graphics::createVulkanVertexFormat(
 			{
 				usedBuffers.insert(bufferBinding);
 
-				VkVertexInputBindingDescription bindingDescription{};
+				VkVertexInputBindingDescription2EXT bindingDescription{};
 				bindingDescription.binding = bufferBinding;
 				if (vertexAttributes.instanceBits & (1u << bufferBinding))
 					bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
@@ -2153,7 +2153,7 @@ void Graphics::createVulkanVertexFormat(
 				highestBufferBinding = std::max(highestBufferBinding, bufferBinding);
 			}
 
-			VkVertexInputAttributeDescription attributeDescription{};
+			VkVertexInputAttributeDescription2EXT attributeDescription{};
 			attributeDescription.location = i;
 			attributeDescription.binding = bufferBinding;
 			attributeDescription.offset = attrib.offsetFromVertex;
@@ -2172,13 +2172,13 @@ void Graphics::createVulkanVertexFormat(
 		// then this doesn't work. We might need to enable null buffers again.
 		const auto constantColorBufferBinding = highestBufferBinding + 1;
 
-		VkVertexInputBindingDescription bindingDescription{};
+		VkVertexInputBindingDescription2EXT bindingDescription{};
 		bindingDescription.binding = constantColorBufferBinding;
 		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 		bindingDescription.stride = 0;	// no stride, will always read the same color multiple times.
 		bindingDescriptions.push_back(bindingDescription);
 
-		VkVertexInputAttributeDescription attributeDescription{};
+		VkVertexInputAttributeDescription2EXT attributeDescription{};
 		attributeDescription.binding = constantColorBufferBinding;
 		attributeDescription.location = ATTRIB_COLOR;
 		attributeDescription.offset = 0;
@@ -2192,21 +2192,65 @@ void Graphics::prepareDraw(const VertexAttributes &attributes, const BufferBindi
 	if (!renderPassState.active)
 		startRenderPass();
 
-	usedShadersInFrame.insert((dynamic_cast<Shader*>(Shader::current)));
+	auto currentShader = dynamic_cast<Shader*>(Shader::current);
 
-	GraphicsPipelineConfiguration configuration{};
+	usedShadersInFrame.insert(currentShader);
 
-	configuration.renderPass = renderPassState.beginInfo.renderPass;
-	configuration.vertexAttributes = attributes;
-	configuration.shader = (Shader*)Shader::current;
-	configuration.wireFrame = states.back().wireframe;
-	configuration.blendState = states.back().blend;
-	configuration.colorChannelMask = states.back().colorMask;
-	configuration.msaaSamples = renderPassState.msaa;
-	configuration.numColorAttachments = renderPassState.numColorAttachments;
-	configuration.primitiveType = primitiveType;
+	const auto commandBuffer = commandBuffers.at(currentFrame);
 
-	vkCmdSetCullModeEXT(commandBuffers.at(currentFrame), Vulkan::getCullMode(cullmode));
+	if (renderPassState.currentShader != currentShader) {
+		renderPassState.currentShader = currentShader;
+
+		auto &shaders = currentShader->getShaders();
+		auto &types = currentShader->getShaderTypes();
+
+		vkCmdBindShadersEXT(commandBuffer, types.size(), types.data(), shaders.data());
+	}
+
+	const auto &currentState = states.back();
+	const auto numColorAttachments = renderPassState.numColorAttachments;
+
+	std::vector<VkVertexInputBindingDescription2EXT> bindingDescriptions;
+	std::vector<VkVertexInputAttributeDescription2EXT> attributeDescriptions;
+
+	createVulkanVertexFormat(attributes, bindingDescriptions, attributeDescriptions);
+
+	vkCmdSetVertexInputEXT(commandBuffer, bindingDescriptions.size(), bindingDescriptions.data(), attributeDescriptions.size(), attributeDescriptions.data());
+
+	vkCmdSetPolygonModeEXT(commandBuffer, Vulkan::getPolygonMode(currentState.wireframe));
+
+	std::vector<VkBool32> blendEnables(numColorAttachments, currentState.blend.enable);
+	vkCmdSetColorBlendEnableEXT(commandBuffer, 0, blendEnables.size(), blendEnables.data());
+
+	VkColorBlendEquationEXT blendEquation{};
+	blendEquation.srcColorBlendFactor = Vulkan::getBlendFactor(currentState.blend.srcFactorRGB);
+	blendEquation.dstColorBlendFactor = Vulkan::getBlendFactor(currentState.blend.dstFactorRGB);
+	blendEquation.colorBlendOp = Vulkan::getBlendOp(currentState.blend.operationRGB);
+	blendEquation.srcAlphaBlendFactor = Vulkan::getBlendFactor(currentState.blend.srcFactorA);
+	blendEquation.dstAlphaBlendFactor = Vulkan::getBlendFactor(currentState.blend.dstFactorA);
+	blendEquation.alphaBlendOp = Vulkan::getBlendOp(currentState.blend.operationA);
+
+	std::vector<VkColorBlendEquationEXT> blendEquations(numColorAttachments, blendEquation);
+
+	VkColorComponentFlags colorComponentFlags{};
+	if (currentState.colorMask.r)
+		colorComponentFlags |= VK_COLOR_COMPONENT_R_BIT;
+	if (currentState.colorMask.g)
+		colorComponentFlags |= VK_COLOR_COMPONENT_G_BIT;
+	if (currentState.colorMask.b)
+		colorComponentFlags |= VK_COLOR_COMPONENT_B_BIT;
+	if (currentState.colorMask.a)
+		colorComponentFlags |= VK_COLOR_COMPONENT_A_BIT;
+
+	std::vector<VkColorComponentFlags> colorComponents(numColorAttachments, colorComponentFlags);
+
+	vkCmdSetColorWriteMaskEXT(commandBuffer, 0, colorComponents.size(), colorComponents.data());
+
+	vkCmdSetRasterizationSamplesEXT(commandBuffer, msaaSamples);
+
+	vkCmdSetPrimitiveTopologyEXT(commandBuffer, Vulkan::getPrimitiveTypeTopology(primitiveType));
+	
+	vkCmdSetCullModeEXT(commandBuffer, Vulkan::getCullMode(cullmode));
 
 	std::vector<VkBuffer> bufferVector;
 	std::vector<VkDeviceSize> offsets;
@@ -2227,13 +2271,12 @@ void Graphics::prepareDraw(const VertexAttributes &attributes, const BufferBindi
 	}
 
 	if (texture == nullptr)
-		configuration.shader->setMainTex(defaultTexture);
+		dynamic_cast<Shader*>(Shader::current)->setMainTex(defaultTexture);
 	else
-		configuration.shader->setMainTex(texture);
+		dynamic_cast<Shader*>(Shader::current)->setMainTex(texture);
 
-	ensureGraphicsPipelineConfiguration(configuration);
+	dynamic_cast<Shader*>(Shader::current)->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-	configuration.shader->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_GRAPHICS);
 	vkCmdBindVertexBuffers(commandBuffers.at(currentFrame), 0, static_cast<uint32_t>(bufferVector.size()), bufferVector.data(), offsets.data());
 }
 
@@ -2348,6 +2391,7 @@ void Graphics::setRenderPass(const RenderTargets &rts, int pixelw, int pixelh, b
 void Graphics::startRenderPass()
 {
 	renderPassState.active = true;
+	renderPassState.currentShader = nullptr;
 
 	if (renderPassState.isWindow && renderPassState.windowClearRequested)
 		renderPassState.windowClearRequested = false;
@@ -2457,13 +2501,6 @@ static void eraseUnusedObjects(
 		objects.erase(key);
 }
 
-void Graphics::cleanupUnusedObjects()
-{
-	eraseUnusedObjects(renderPasses, renderPassUsages, vkDestroyRenderPass, device);
-	eraseUnusedObjects(framebuffers, framebufferUsages, vkDestroyFramebuffer, device);
-	eraseUnusedObjects(graphicsPipelines, pipelineUsages, vkDestroyPipeline, device);
-}
-
 void Graphics::requestSwapchainRecreation()
 {
 	if (swapChain != VK_NULL_HANDLE)
@@ -2488,147 +2525,6 @@ VkSampler Graphics::getCachedSampler(const SamplerState &samplerState)
 		VkSampler sampler = createSampler(samplerState);
 		samplers.insert({ samplerkey, sampler });
 		return sampler;
-	}
-}
-
-VkPipeline Graphics::createGraphicsPipeline(GraphicsPipelineConfiguration &configuration)
-{
-	VkGraphicsPipelineCreateInfo pipelineInfo{};
-	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-
-	auto &shaderStages = configuration.shader->getShaderStages();
-
-	std::vector<VkVertexInputBindingDescription> bindingDescriptions;
-	std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
-
-	createVulkanVertexFormat(configuration.vertexAttributes, bindingDescriptions, attributeDescriptions);
-
-	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size());
-	vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
-	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-	vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
-
-	VkPipelineViewportStateCreateInfo viewportState{};
-	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-	viewportState.viewportCount = 1;
-	viewportState.scissorCount = 1;
-
-	VkPipelineMultisampleStateCreateInfo multisampling{};
-	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisampling.sampleShadingEnable = VK_FALSE;
-	multisampling.rasterizationSamples = configuration.msaaSamples;
-
-	VkPipelineRasterizationStateCreateInfo rasterizer{};
-	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterizer.depthClampEnable = VK_FALSE;
-	rasterizer.rasterizerDiscardEnable = VK_FALSE;
-	rasterizer.polygonMode = Vulkan::getPolygonMode(configuration.wireFrame);
-	rasterizer.lineWidth = 1.0f;
-
-	rasterizer.depthBiasEnable = VK_FALSE;
-	rasterizer.depthBiasConstantFactor = 0.0f;
-	rasterizer.depthBiasClamp = 0.0f;
-	rasterizer.depthBiasSlopeFactor = 0.0f;
-
-	VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	inputAssembly.topology = Vulkan::getPrimitiveTypeTopology(configuration.primitiveType);
-	inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-	VkPipelineDepthStencilStateCreateInfo depthStencil{};
-	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	depthStencil.depthTestEnable = VK_TRUE;
-	depthStencil.depthBoundsTestEnable = VK_FALSE;
-	depthStencil.minDepthBounds = 0.0f;
-	depthStencil.maxDepthBounds = 1.0f;
-
-	depthStencil.stencilTestEnable = VK_TRUE;
-
-	pipelineInfo.pDepthStencilState = &depthStencil;
-
-	VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-	colorBlendAttachment.colorWriteMask = Vulkan::getColorMask(configuration.colorChannelMask);
-	colorBlendAttachment.blendEnable = Vulkan::getBool(configuration.blendState.enable);
-	colorBlendAttachment.srcColorBlendFactor = Vulkan::getBlendFactor(configuration.blendState.srcFactorRGB);
-	colorBlendAttachment.dstColorBlendFactor = Vulkan::getBlendFactor(configuration.blendState.dstFactorRGB);
-	colorBlendAttachment.colorBlendOp = Vulkan::getBlendOp(configuration.blendState.operationRGB);
-	colorBlendAttachment.srcAlphaBlendFactor = Vulkan::getBlendFactor(configuration.blendState.srcFactorA);
-	colorBlendAttachment.dstAlphaBlendFactor = Vulkan::getBlendFactor(configuration.blendState.dstFactorA);
-	colorBlendAttachment.alphaBlendOp = Vulkan::getBlendOp(configuration.blendState.operationA);
-
-	std::vector<VkPipelineColorBlendAttachmentState> colorBlendAttachments(configuration.numColorAttachments, colorBlendAttachment);
-
-	VkPipelineColorBlendStateCreateInfo colorBlending{};
-	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	colorBlending.logicOpEnable = VK_FALSE;
-	colorBlending.logicOp = VK_LOGIC_OP_COPY;
-	colorBlending.attachmentCount = static_cast<uint32_t>(colorBlendAttachments.size());
-	colorBlending.pAttachments = colorBlendAttachments.data();
-	colorBlending.blendConstants[0] = 0.0f;
-	colorBlending.blendConstants[1] = 0.0f;
-	colorBlending.blendConstants[2] = 0.0f;
-	colorBlending.blendConstants[3] = 0.0f;
-
-	std::vector<VkDynamicState> dynamicStates = {
-		VK_DYNAMIC_STATE_SCISSOR,
-		VK_DYNAMIC_STATE_VIEWPORT,
-		VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-		VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
-		VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-
-		VK_DYNAMIC_STATE_CULL_MODE_EXT,
-		VK_DYNAMIC_STATE_FRONT_FACE_EXT,
-		VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE_EXT,
-		VK_DYNAMIC_STATE_DEPTH_COMPARE_OP_EXT,
-		VK_DYNAMIC_STATE_STENCIL_OP_EXT,
-	};
-
-	VkPipelineDynamicStateCreateInfo dynamicState{};
-	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-	dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-	dynamicState.pDynamicStates = dynamicStates.data();
-
-	pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
-	pipelineInfo.pStages = shaderStages.data();
-	pipelineInfo.pVertexInputState = &vertexInputInfo;
-	pipelineInfo.pInputAssemblyState = &inputAssembly;
-	pipelineInfo.pViewportState = &viewportState;
-	pipelineInfo.pRasterizationState = &rasterizer;
-	pipelineInfo.pMultisampleState = &multisampling;
-	pipelineInfo.pColorBlendState = &colorBlending;
-	pipelineInfo.pDynamicState = &dynamicState;
-	pipelineInfo.layout = configuration.shader->getGraphicsPipelineLayout();
-	pipelineInfo.subpass = 0;
-	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-	pipelineInfo.basePipelineIndex = -1;
-	pipelineInfo.renderPass = configuration.renderPass;
-
-	VkPipeline graphicsPipeline;
-	if (vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS)
-		throw love::Exception("failed to create graphics pipeline");
-	return graphicsPipeline;
-}
-
-void Graphics::ensureGraphicsPipelineConfiguration(GraphicsPipelineConfiguration &configuration) {
-	auto it = graphicsPipelines.find(configuration);
-	if (it != graphicsPipelines.end())
-	{
-		if (it->second != renderPassState.pipeline)
-		{
-			vkCmdBindPipeline(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_GRAPHICS, it->second);
-			renderPassState.pipeline = it->second;
-			pipelineUsages[it->second] = true;
-		}
-	}
-	else
-	{
-		VkPipeline pipeline = createGraphicsPipeline(configuration);
-		graphicsPipelines.insert({configuration, pipeline});
-		vkCmdBindPipeline(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-		renderPassState.pipeline = pipeline;
-		pipelineUsages[pipeline] = true;
 	}
 }
 
@@ -2885,10 +2781,6 @@ void Graphics::cleanup()
 		vkDestroyFramebuffer(device, entry.second, nullptr);
 	framebuffers.clear();
 		
-	for (auto const &p : graphicsPipelines)
-		vkDestroyPipeline(device, p.second, nullptr);
-	graphicsPipelines.clear();
-
 	vkDestroyCommandPool(device, commandPool, nullptr);
 	vkDestroyPipelineCache(device, pipelineCache, nullptr);
 	vkDestroyDevice(device, nullptr);

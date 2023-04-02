@@ -140,37 +140,6 @@ struct FramebufferConfigurationHasher
 	}
 };
 
-struct GraphicsPipelineConfiguration
-{
-	VkRenderPass renderPass;
-	VertexAttributes vertexAttributes;
-	Shader *shader = nullptr;
-	bool wireFrame;
-	BlendState blendState;
-	ColorChannelMask colorChannelMask;
-	VkSampleCountFlagBits msaaSamples;
-	uint32_t numColorAttachments;
-	PrimitiveType primitiveType;
-
-	GraphicsPipelineConfiguration()
-	{
-		memset(this, 0, sizeof(GraphicsPipelineConfiguration));
-	}
-
-	bool operator==(const GraphicsPipelineConfiguration &other) const
-	{
-		return memcmp(this, &other, sizeof(GraphicsPipelineConfiguration)) == 0;
-	}
-};
-
-struct GraphicsPipelineConfigurationHasher
-{
-	size_t operator() (const GraphicsPipelineConfiguration &configuration) const
-	{
-		return XXH32(&configuration, sizeof(GraphicsPipelineConfiguration), 0);
-	}
-};
-
 struct QueueFamilyIndices
 {
 	Optional<uint32_t> graphicsFamily;
@@ -192,6 +161,7 @@ struct SwapChainSupportDetails
 struct RenderpassState
 {
 	bool active = false;
+	Shader* currentShader = nullptr;
 	VkRenderPassBeginInfo beginInfo{};
 	bool isWindow = false;
 	RenderPassConfiguration renderPassConfiguration{};
@@ -315,7 +285,6 @@ private:
 	void createDefaultShaders();
 	VkRenderPass createRenderPass(RenderPassConfiguration &configuration);
 	VkRenderPass getRenderPass(RenderPassConfiguration &configuration);
-	VkPipeline createGraphicsPipeline(GraphicsPipelineConfiguration &configuration);
 	void createColorResources();
 	VkFormat findSupportedFormat(const std::vector<VkFormat> &candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 	VkFormat findDepthFormat();
@@ -331,12 +300,11 @@ private:
 	void beginFrame();
 	void startRecordingGraphicsCommands();
 	void endRecordingGraphicsCommands();
-	void ensureGraphicsPipelineConfiguration(GraphicsPipelineConfiguration &configuration);
 	bool usesConstantVertexColor(const VertexAttributes &attribs);
 	void createVulkanVertexFormat(
 		VertexAttributes vertexAttributes, 
-		std::vector<VkVertexInputBindingDescription> &bindingDescriptions, 
-		std::vector<VkVertexInputAttributeDescription> &attributeDescriptions);
+		std::vector<VkVertexInputBindingDescription2EXT> &bindingDescriptions,
+		std::vector<VkVertexInputAttributeDescription2EXT> &attributeDescriptions);
 	void prepareDraw(
 		const VertexAttributes &attributes,
 		const BufferBindings &buffers, graphics::Texture *texture,
@@ -376,7 +344,6 @@ private:
 	VkPipelineCache pipelineCache = VK_NULL_HANDLE;
 	std::unordered_map<RenderPassConfiguration, VkRenderPass, RenderPassConfigurationHasher> renderPasses;
 	std::unordered_map<FramebufferConfiguration, VkFramebuffer, FramebufferConfigurationHasher> framebuffers;
-	std::unordered_map<GraphicsPipelineConfiguration, VkPipeline, GraphicsPipelineConfigurationHasher> graphicsPipelines;
 	std::unordered_map<VkRenderPass, bool> renderPassUsages;
 	std::unordered_map<VkFramebuffer, bool> framebufferUsages;
 	std::unordered_map<VkPipeline, bool> pipelineUsages;
@@ -391,7 +358,6 @@ private:
 	int vsync = 1;
 	VkDeviceSize minUniformBufferOffsetAlignment = 0;
 	bool imageRequested = false;
-	uint32_t frameCounter = 0;
 	size_t currentFrame = 0;
 	uint32_t imageIndex = 0;
 	bool swapChainRecreationRequested = false;

@@ -258,7 +258,6 @@ bool Shader::loadVolatile()
 
 	compileShaders();
 	calculateUniformBufferSizeAligned();
-	createDescriptorSetLayout();
 	createPipelineLayout();
 	createDescriptorPoolSizes();
 	createStreamBuffers();
@@ -273,7 +272,7 @@ bool Shader::loadVolatile()
 
 void Shader::unloadVolatile()
 {
-	if (shaderModules.empty())
+	if (shaders.empty())
 		return;
 
 	for (const auto &uniform : uniformInfos)
@@ -301,11 +300,9 @@ void Shader::unloadVolatile()
 		}
 	}
 
-	vgfx->queueCleanUp([shaderModules = std::move(shaderModules), device = device, descriptorSetLayout = descriptorSetLayout, pipelineLayout = pipelineLayout, descriptorPools = descriptorPools, computePipeline = computePipeline](){
+	vgfx->queueCleanUp([shaders = std::move(shaders), device = device, descriptorSetLayout = descriptorSetLayout, pipelineLayout = pipelineLayout, descriptorPools = descriptorPools, computePipeline = computePipeline](){
 		for (const auto pool : descriptorPools)
 			vkDestroyDescriptorPool(device, pool, nullptr);
-		for (const auto shaderModule : shaderModules)
-			vkDestroyShaderModule(device, shaderModule, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		if (computePipeline != VK_NULL_HANDLE)
@@ -318,26 +315,23 @@ void Shader::unloadVolatile()
 	for (const auto streamBuffer : streamBuffers)
 		streamBuffer->release();
 
-	shaderModules.clear();
-	shaderStages.clear();
+	shaders.clear();
 	streamBuffers.clear();
 	descriptorPools.clear();
 	descriptorSetsVector.clear();
 }
 
-const std::vector<VkPipelineShaderStageCreateInfo> &Shader::getShaderStages() const
-{
-	return shaderStages;
-}
-
-const VkPipelineLayout Shader::getGraphicsPipelineLayout() const
-{
-	return pipelineLayout;
-}
-
 VkPipeline Shader::getComputePipeline() const
 {
 	return computePipeline;
+}
+
+const std::vector<VkShaderEXT>& Shader::getShaders() const {
+	return shaders;
+}
+
+const std::vector<VkShaderStageFlagBits>& Shader::getShaderTypes() const {
+	return shaderTypes;
 }
 
 void Shader::newFrame()
@@ -473,17 +467,13 @@ Shader::~Shader()
 
 void Shader::attach()
 {
-	if (!isCompute)
+	if (Shader::current != this)
 	{
-		if (Shader::current != this)
-		{
-			Graphics::flushBatchedDrawsGlobal();
-			Shader::current = this;
-			Vulkan::shaderSwitch();
-		}
+		Graphics::flushBatchedDrawsGlobal();
+
+		Shader::current = this;
+		Vulkan::shaderSwitch();
 	}
-	else
-		vgfx->setComputeShader(this);
 }
 
 int Shader::getVertexAttributeIndex(const std::string &name)
@@ -798,6 +788,9 @@ void Shader::compileShaders()
 
 	BindingMapper bindingMapper;
 
+	std::vector<VkShaderCreateInfoEXT> shaderInfos;
+	std::vector<std::vector<uint32_t>> spirvs;
+
 	for (int i = 0; i < SHADERSTAGE_MAX_ENUM; i++)
 	{
 		auto shaderStage = (ShaderStageType)i;
@@ -826,7 +819,6 @@ void Shader::compileShaders()
 			if (resource.name == "gl_DefaultUniformBlock")
 			{
 				const auto& type = comp.get_type(resource.base_type_id);
-				size_t uniformBufferObjectSize = comp.get_declared_struct_size(type);
 				auto defaultUniformBlockSize = comp.get_declared_struct_size(type);
 				localUniformStagingData.resize(defaultUniformBlockSize);
 				localUniformData.resize(defaultUniformBlockSize);
@@ -933,7 +925,7 @@ void Shader::compileShaders()
 				continue;
 
 			u.location = bindingMapper(comp, spirv, r.name, r.id);
-			u.buffers = new love::graphics::Buffer *[u.count];
+			u.buffers = new love::graphics::Buffer * [u.count];
 
 			for (int i = 0; i < u.count; i++)
 				u.buffers[i] = nullptr;
@@ -941,9 +933,9 @@ void Shader::compileShaders()
 			uniformInfos[u.name] = u;
 		}
 
-		for (const auto &r : shaderResources.storage_images)
+		for (const auto& r : shaderResources.storage_images)
 		{
-			const auto &type = comp.get_type(r.type_id);
+			const auto& type = comp.get_type(r.type_id);
 
 			UniformInfo u{};
 			u.baseType = UNIFORM_STORAGETEXTURE;
@@ -954,7 +946,7 @@ void Shader::compileShaders()
 			if (!fillUniformReflectionData(u))
 				continue;
 
-			u.textures = new love::graphics::Texture *[u.count];
+			u.textures = new love::graphics::Texture * [u.count];
 			u.location = bindingMapper(comp, spirv, r.name, r.id);
 
 			for (int i = 0; i < u.count; i++)
@@ -973,30 +965,25 @@ void Shader::compileShaders()
 			}
 		}
 
-		VkShaderModuleCreateInfo createInfo{};
-		createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-		createInfo.codeSize = spirv.size() * sizeof(uint32_t);
-		createInfo.pCode = spirv.data();
+		spirvs.push_back(std::move(spirv));
 
-		VkShaderModule shaderModule;
+		VkShaderCreateInfoEXT shaderInfo{};
+		shaderInfo.sType = VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT;
+		shaderInfo.pNext = nullptr;
+		shaderInfo.flags = VK_SHADER_CREATE_LINK_STAGE_BIT_EXT;
+		shaderInfo.stage = getStageBit((ShaderStageType)i);
+		if (shaderInfo.stage == VK_SHADER_STAGE_VERTEX_BIT)
+			shaderInfo.nextStage |= VK_SHADER_STAGE_FRAGMENT_BIT;
+		shaderInfo.codeType = VK_SHADER_CODE_TYPE_SPIRV_EXT;
+		shaderInfo.codeSize = spirvs.back().size() * sizeof(uint32_t);
+		shaderInfo.pCode = spirvs.back().data();
+		shaderInfo.pName = "main";
+		shaderInfo.setLayoutCount = 1;
 
-		if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS)
-			throw love::Exception("failed to create shader module");
-
-		shaderModules.push_back(shaderModule);
-
-		VkPipelineShaderStageCreateInfo shaderStageInfo{};
-		shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		shaderStageInfo.stage = getStageBit((ShaderStageType)i);
-		shaderStageInfo.module = shaderModule;
-		shaderStageInfo.pName = "main";
-
-		shaderStages.push_back(shaderStageInfo);
+		shaderInfos.push_back(shaderInfo);
+		shaderTypes.push_back(shaderInfo.stage);
 	}
-}
 
-void Shader::createDescriptorSetLayout()
-{
 	std::vector<VkDescriptorSetLayoutBinding> bindings;
 
 	VkShaderStageFlags stageFlags;
@@ -1038,6 +1025,14 @@ void Shader::createDescriptorSetLayout()
 
 	if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS)
 		throw love::Exception("failed to create descriptor set layout");
+
+	for (auto &info : shaderInfos)
+		info.pSetLayouts = &descriptorSetLayout;
+
+	shaders.resize(shaderInfos.size());
+
+	if (vkCreateShadersEXT(device, shaderInfos.size(), shaderInfos.data(), nullptr, shaders.data()) != VK_SUCCESS)
+		throw love::Exception("could not create shaders");
 }
 
 void Shader::createPipelineLayout()
@@ -1050,19 +1045,6 @@ void Shader::createPipelineLayout()
 
 	if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
 		throw love::Exception("failed to create pipeline layout");
-
-	if (isCompute)
-	{
-		assert(shaderStages.size() == 1);
-
-		VkComputePipelineCreateInfo computeInfo{};
-		computeInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-		computeInfo.stage = shaderStages.at(0);
-		computeInfo.layout = pipelineLayout;
-
-		if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &computeInfo, nullptr, &computePipeline) != VK_SUCCESS)
-			throw love::Exception("failed to create compute pipeline");
-	}
 }
 
 void Shader::createDescriptorPoolSizes()

@@ -60,11 +60,10 @@ public:
 
 	VkPipeline getComputePipeline() const;
 
-	const std::vector<VkPipelineShaderStageCreateInfo> &getShaderStages() const;
-
-	const VkPipelineLayout getGraphicsPipelineLayout() const;
-
 	void newFrame();
+
+	const std::vector<VkShaderEXT> &getShaders() const;
+	const std::vector<VkShaderStageFlagBits>& getShaderTypes() const;
 
 	void cmdPushDescriptorSets(VkCommandBuffer, VkPipelineBindPoint);
 
@@ -93,7 +92,6 @@ public:
 private:
 	void calculateUniformBufferSizeAligned();
 	void compileShaders();
-	void createDescriptorSetLayout();
 	void createPipelineLayout();
 	void createDescriptorPoolSizes();
 	void createStreamBuffers();
@@ -105,6 +103,9 @@ private:
 	void updateUniform(const UniformInfo *info, int count, bool internal);
 
 	VkDescriptorSet allocateDescriptorSet();
+
+	std::vector<VkShaderEXT> shaders;
+	std::vector<VkShaderStageFlagBits> shaderTypes;
 
 	VkDeviceSize uniformBufferSizeAligned;
 
@@ -122,9 +123,6 @@ private:
 	std::vector<std::vector<VkDescriptorSet>> descriptorSetsVector;
 
 	std::set<uint32_t> updatedUniforms;
-
-	std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
-	std::vector<VkShaderModule> shaderModules;
 
 	Graphics *vgfx = nullptr;
 	VkDevice device;
