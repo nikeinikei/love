@@ -1817,6 +1817,13 @@ set(LOVE_SRC_3P_VOLK
 #
 
 set(LOVE_SRC_3P_VULKAN_HEADERS
+	src/libraries/vulkanheaders/vk_video/vulkan_video_codec_h264std_decode.h
+	src/libraries/vulkanheaders/vk_video/vulkan_video_codec_h264std_encode.h
+	src/libraries/vulkanheaders/vk_video/vulkan_video_codec_h264std.h
+	src/libraries/vulkanheaders/vk_video/vulkan_video_codec_h265std_decode.h
+	src/libraries/vulkanheaders/vk_video/vulkan_video_codec_h265std_encode.h
+	src/libraries/vulkanheaders/vk_video/vulkan_video_codec_h265std.h
+	src/libraries/vulkanheaders/vk_video/vulkan_video_codecs_common.h
 	src/libraries/vulkanheaders/vk_icd.h
 	src/libraries/vulkanheaders/vk_layer.h
 	src/libraries/vulkanheaders/vk_platform.h
@@ -1826,6 +1833,7 @@ set(LOVE_SRC_3P_VULKAN_HEADERS
 	src/libraries/vulkanheaders/vulkan_core.h
 	src/libraries/vulkanheaders/vulkan_directfb.h
 	src/libraries/vulkanheaders/vulkan_enums.hpp
+	src/libraries/vulkanheaders/vulkan_extension_inspection.hpp
 	src/libraries/vulkanheaders/vulkan_format_traits.hpp
 	src/libraries/vulkanheaders/vulkan_fuchsia.h
 	src/libraries/vulkanheaders/vulkan_funcs.h

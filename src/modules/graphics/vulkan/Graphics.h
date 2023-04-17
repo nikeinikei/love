@@ -279,7 +279,7 @@ public:
 	void unSetMode() override;
 	void setActive(bool active) override;
 	int getRequestedBackbufferMSAA() const override;
-	int getBackbufferMSAA() const  override;
+	int getBackbufferMSAA() const override;
 	void setColor(Colorf c) override;
 	void setScissor(const Rect &rect) override;
 	void setScissor() override;
