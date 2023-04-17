@@ -151,6 +151,12 @@ struct OptionalDeviceExtensions
 	// VK_EXT_extended_dynamic_state
 	bool extendedDynamicState = false;
 
+	// VK_EXT_extended_dynamic_state3
+	bool extendedDynamicState3 = false;
+
+	// VK_EXT_vertex_input_dynamic_state
+	bool vertexInputDynamicState = false;
+
 	// VK_KHR_get_memory_requirements2
 	bool memoryRequirements2 = false;
 
@@ -169,15 +175,9 @@ struct OptionalDeviceExtensions
 
 struct GraphicsPipelineConfiguration
 {
-	VkRenderPass renderPass;
-	VertexAttributes vertexAttributes;
+	VkRenderPass renderPass = VK_NULL_HANDLE;
 	Shader *shader = nullptr;
-	bool wireFrame;
-	BlendState blendState;
-	ColorChannelMask colorChannelMask;
-	VkSampleCountFlagBits msaaSamples;
-	uint32_t numColorAttachments;
-	PrimitiveType primitiveType;
+	uint32_t numColorAttachments = 0;
 
 	struct DynamicState
 	{
@@ -187,6 +187,24 @@ struct GraphicsPipelineConfiguration
 		CompareMode stencilCompare = COMPARE_MAX_ENUM;
 		DepthState depthState{};
 	} dynamicState;
+
+	struct DynamicState3
+	{
+		VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+		bool wireFrame = false;
+		BlendState blendState;
+		ColorChannelMask colorChannelMask;
+	} dynamicState3;
+
+	struct VertexInput
+	{
+		VertexAttributes vertexAttributes;
+	} vertexInput;
+
+	struct UnrestrictedTopology
+	{
+		PrimitiveType primitiveType;
+	} unrestrictedTopology;
 
 	GraphicsPipelineConfiguration()
 	{
@@ -370,10 +388,6 @@ private:
 	void endRecordingGraphicsCommands();
 	void ensureGraphicsPipelineConfiguration(GraphicsPipelineConfiguration &configuration);
 	bool usesConstantVertexColor(const VertexAttributes &attribs);
-	void createVulkanVertexFormat(
-		VertexAttributes vertexAttributes, 
-		std::vector<VkVertexInputBindingDescription> &bindingDescriptions, 
-		std::vector<VkVertexInputAttributeDescription> &attributeDescriptions);
 	void prepareDraw(
 		const VertexAttributes &attributes,
 		const BufferBindings &buffers, graphics::Texture *texture,
@@ -394,6 +408,7 @@ private:
 	VkDevice device = VK_NULL_HANDLE; 
 	OptionalInstanceExtensions optionalInstanceExtensions;
 	OptionalDeviceExtensions optionalDeviceExtensions;
+	bool dynamicUnrestrictedTopology = false;
 	VkQueue graphicsQueue = VK_NULL_HANDLE;
 	VkQueue presentQueue = VK_NULL_HANDLE;
 	VkSurfaceKHR surface = VK_NULL_HANDLE;
