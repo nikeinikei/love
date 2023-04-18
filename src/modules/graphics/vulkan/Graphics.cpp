@@ -1733,7 +1733,6 @@ void Graphics::createLogicalDevice()
 
 	VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extendedDynamicState3Features{};
 	extendedDynamicState3Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
-	extendedDynamicState3Features.pNext = &vertexInputFeatures;
 	extendedDynamicState3Features.extendedDynamicState3RasterizationSamples = VK_TRUE;
 	extendedDynamicState3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
 	extendedDynamicState3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
