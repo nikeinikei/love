@@ -1714,6 +1714,8 @@ void Graphics::createLogicalDevice()
 	createInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
 	createInfo.ppEnabledExtensionNames = enabledExtensions.data();
 
+	VkBaseInStructure* chain = (VkBaseInStructure*) &createInfo;
+
 	if (isDebugEnabled())
 	{
 		createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
@@ -1722,27 +1724,35 @@ void Graphics::createLogicalDevice()
 
 	VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT vertexInputFeatures{};
 	vertexInputFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_INPUT_DYNAMIC_STATE_FEATURES_EXT;
+	vertexInputFeatures.vertexInputDynamicState = VK_TRUE;
 	if (optionalDeviceExtensions.vertexInputDynamicState)
-		vertexInputFeatures.vertexInputDynamicState = VK_TRUE;
+	{
+		chain->pNext = (const VkBaseInStructure*) &vertexInputFeatures;
+		chain = (VkBaseInStructure*) &vertexInputFeatures;
+	}
 
 	VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extendedDynamicState3Features{};
 	extendedDynamicState3Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
 	extendedDynamicState3Features.pNext = &vertexInputFeatures;
+	extendedDynamicState3Features.extendedDynamicState3RasterizationSamples = VK_TRUE;
+	extendedDynamicState3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
+	extendedDynamicState3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
+	extendedDynamicState3Features.extendedDynamicState3PolygonMode = VK_TRUE;
+	extendedDynamicState3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
 	if (optionalDeviceExtensions.extendedDynamicState3)
 	{
-		extendedDynamicState3Features.extendedDynamicState3RasterizationSamples = VK_TRUE;
-		extendedDynamicState3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
-		extendedDynamicState3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
-		extendedDynamicState3Features.extendedDynamicState3PolygonMode = VK_TRUE;
-		extendedDynamicState3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
+		chain->pNext = (const VkBaseInStructure*) &extendedDynamicState3Features;
+		chain = (VkBaseInStructure*) &extendedDynamicState3Features;
 	}
 
 	VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures{};
 	extendedDynamicStateFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
-	extendedDynamicStateFeatures.extendedDynamicState = Vulkan::getBool(optionalDeviceExtensions.extendedDynamicState);
-	extendedDynamicStateFeatures.pNext = &extendedDynamicState3Features;
-
-	createInfo.pNext = &extendedDynamicStateFeatures;
+	extendedDynamicStateFeatures.extendedDynamicState = VK_TRUE;
+	if (optionalDeviceExtensions.extendedDynamicState)
+	{
+		chain->pNext = (const VkBaseInStructure*) &extendedDynamicStateFeatures;
+		chain = (VkBaseInStructure*) &extendedDynamicStateFeatures;
+	}
 
 	if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS)
 		throw love::Exception("failed to create logical device");
