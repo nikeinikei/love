@@ -1760,6 +1760,38 @@ void Graphics::createLogicalDevice()
 
 	vkGetDeviceQueue(device, indices.graphicsFamily.value, 0, &graphicsQueue);
 	vkGetDeviceQueue(device, indices.presentFamily.value, 0, &presentQueue);
+
+	dynamicStates = {
+			VK_DYNAMIC_STATE_SCISSOR,
+			VK_DYNAMIC_STATE_VIEWPORT,
+			VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
+			VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
+			VK_DYNAMIC_STATE_STENCIL_REFERENCE,
+	};
+
+	if (dynamicUnrestrictedTopology)
+		dynamicStates.push_back(VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT);
+
+	if (optionalDeviceExtensions.vertexInputDynamicState)
+		dynamicStates.push_back(VK_DYNAMIC_STATE_VERTEX_INPUT_EXT);
+
+	if (optionalDeviceExtensions.extendedDynamicState)
+	{
+		dynamicStates.push_back(VK_DYNAMIC_STATE_CULL_MODE_EXT);
+		dynamicStates.push_back(VK_DYNAMIC_STATE_FRONT_FACE_EXT);
+		dynamicStates.push_back(VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE_EXT);
+		dynamicStates.push_back(VK_DYNAMIC_STATE_DEPTH_COMPARE_OP_EXT);
+		dynamicStates.push_back(VK_DYNAMIC_STATE_STENCIL_OP_EXT);
+	}
+
+	if (optionalDeviceExtensions.extendedDynamicState3)
+	{
+		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT);
+		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT);
+		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT);
+		dynamicStates.push_back(VK_DYNAMIC_STATE_POLYGON_MODE_EXT);
+		dynamicStates.push_back(VK_DYNAMIC_STATE_RASTERIZATION_SAMPLES_EXT);
+	}
 }
 
 void Graphics::createPipelineCache()
@@ -2884,38 +2916,6 @@ VkPipeline Graphics::createGraphicsPipeline(GraphicsPipelineConfiguration &confi
 	colorBlending.blendConstants[1] = 0.0f;
 	colorBlending.blendConstants[2] = 0.0f;
 	colorBlending.blendConstants[3] = 0.0f;
-
-	std::vector<VkDynamicState> dynamicStates = {
-			VK_DYNAMIC_STATE_SCISSOR,
-			VK_DYNAMIC_STATE_VIEWPORT,
-			VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-	};
-
-	if (dynamicUnrestrictedTopology)
-		dynamicStates.push_back(VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT);
-
-	if (optionalDeviceExtensions.extendedDynamicState)
-	{
-		dynamicStates.push_back(VK_DYNAMIC_STATE_CULL_MODE_EXT);
-		dynamicStates.push_back(VK_DYNAMIC_STATE_FRONT_FACE_EXT);
-		dynamicStates.push_back(VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE_EXT);
-		dynamicStates.push_back(VK_DYNAMIC_STATE_DEPTH_COMPARE_OP_EXT);
-		dynamicStates.push_back(VK_DYNAMIC_STATE_STENCIL_OP_EXT);
-	}
-
-	if (optionalDeviceExtensions.extendedDynamicState3)
-	{
-		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT);
-		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT);
-		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT);
-		dynamicStates.push_back(VK_DYNAMIC_STATE_POLYGON_MODE_EXT);
-		dynamicStates.push_back(VK_DYNAMIC_STATE_RASTERIZATION_SAMPLES_EXT);
-	}
-
-	if (optionalDeviceExtensions.vertexInputDynamicState)
-		dynamicStates.push_back(VK_DYNAMIC_STATE_VERTEX_INPUT_EXT);
 
 	VkPipelineDynamicStateCreateInfo dynamicState{};
 	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;

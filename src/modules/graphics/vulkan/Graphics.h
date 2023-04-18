@@ -409,6 +409,7 @@ private:
 	OptionalInstanceExtensions optionalInstanceExtensions;
 	OptionalDeviceExtensions optionalDeviceExtensions;
 	bool dynamicUnrestrictedTopology = false;
+	std::vector<VkDynamicState> dynamicStates;
 	VkQueue graphicsQueue = VK_NULL_HANDLE;
 	VkQueue presentQueue = VK_NULL_HANDLE;
 	VkSurfaceKHR surface = VK_NULL_HANDLE;
