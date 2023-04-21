@@ -704,7 +704,7 @@ void Graphics::setColorMask(ColorChannelMask mask)
 
 	states.back().colorMask = mask;
 
-	if (renderPassState.active && optionalDeviceExtensions.extendedDynamicState3)
+	if (renderPassState.active && useExtendedDynamicState3)
 	{
 		std::vector<VkColorComponentFlags> colorWrites(renderPassState.numColorAttachments, Vulkan::getColorMask(states.back().colorMask));
 
@@ -721,7 +721,7 @@ void Graphics::setBlendState(const BlendState &blend)
 
 	states.back().blend = blend;
 
-	if (renderPassState.active && optionalDeviceExtensions.extendedDynamicState3)
+	if (renderPassState.active && useExtendedDynamicState3)
 	{
 		const auto &blendState = states.back().blend;
 
@@ -1000,7 +1000,7 @@ void Graphics::setWireframe(bool enable)
 
 	states.back().wireframe = enable;
 
-	if (optionalDeviceExtensions.extendedDynamicState3)
+	if (useExtendedDynamicState3)
 		vkCmdSetPolygonModeEXT(commandBuffers.at(currentFrame), Vulkan::getPolygonMode(enable));
 }
 
@@ -1207,7 +1207,7 @@ void Graphics::initDynamicState()
 			commandBuffers.at(currentFrame), Vulkan::getFrontFace(states.back().winding));
 	}
 
-	if (optionalDeviceExtensions.extendedDynamicState3)
+	if (useExtendedDynamicState3)
 		vkCmdSetPolygonModeEXT(commandBuffers.at(currentFrame), Vulkan::getPolygonMode(states.back().wireframe));
 }
 
@@ -1666,6 +1666,33 @@ void Graphics::createLogicalDevice()
 	if (optionalDeviceExtensions.spirv14 && deviceApiVersion < VK_API_VERSION_1_1)
 		optionalDeviceExtensions.spirv14 = false;
 
+	useExtendedDynamicState3 = false;
+	if (optionalDeviceExtensions.extendedDynamicState3)
+	{
+		VkPhysicalDeviceExtendedDynamicState3FeaturesEXT dynamicState3Features{};
+		dynamicState3Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
+
+		VkPhysicalDeviceFeatures2 deviceFeatures{};
+		deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+		deviceFeatures.pNext = &dynamicState3Features;
+
+		vkGetPhysicalDeviceFeatures2(physicalDevice, &deviceFeatures);
+
+		useExtendedDynamicState3 = true;
+
+		if (!dynamicState3Features.extendedDynamicState3RasterizationSamples)
+			useExtendedDynamicState3 = false;
+		if (!dynamicState3Features.extendedDynamicState3ColorBlendEnable)
+			useExtendedDynamicState3 = false;
+		if (!dynamicState3Features.extendedDynamicState3ColorBlendEquation)
+			useExtendedDynamicState3 = false;
+		if (!dynamicState3Features.extendedDynamicState3PolygonMode)
+			useExtendedDynamicState3 = false;
+		if (!dynamicState3Features.extendedDynamicState3ColorWriteMask)
+			useExtendedDynamicState3 = false;
+	}
+
+	dynamicUnrestrictedTopology = false;
 	if (optionalDeviceExtensions.extendedDynamicState && optionalDeviceExtensions.extendedDynamicState3)
 	{
 		VkPhysicalDeviceExtendedDynamicState3PropertiesEXT dynamicState3Properties{};
@@ -1680,6 +1707,9 @@ void Graphics::createLogicalDevice()
 		if (dynamicState3Properties.dynamicPrimitiveTopologyUnrestricted)
 			dynamicUnrestrictedTopology = true;
 	}
+
+	if (!dynamicUnrestrictedTopology && !useExtendedDynamicState3)
+		optionalDeviceExtensions.extendedDynamicState3 = false;
 
 	VkPhysicalDeviceFeatures deviceFeatures{};
 	deviceFeatures.samplerAnisotropy = VK_TRUE;
@@ -1733,11 +1763,14 @@ void Graphics::createLogicalDevice()
 
 	VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extendedDynamicState3Features{};
 	extendedDynamicState3Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
-	extendedDynamicState3Features.extendedDynamicState3RasterizationSamples = VK_TRUE;
-	extendedDynamicState3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
-	extendedDynamicState3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
-	extendedDynamicState3Features.extendedDynamicState3PolygonMode = VK_TRUE;
-	extendedDynamicState3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
+	if (useExtendedDynamicState3)
+	{
+		extendedDynamicState3Features.extendedDynamicState3RasterizationSamples = VK_TRUE;
+		extendedDynamicState3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
+		extendedDynamicState3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
+		extendedDynamicState3Features.extendedDynamicState3PolygonMode = VK_TRUE;
+		extendedDynamicState3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
+	}
 	if (optionalDeviceExtensions.extendedDynamicState3)
 	{
 		chain->pNext = (const VkBaseInStructure*) &extendedDynamicState3Features;
@@ -1784,7 +1817,7 @@ void Graphics::createLogicalDevice()
 		dynamicStates.push_back(VK_DYNAMIC_STATE_STENCIL_OP_EXT);
 	}
 
-	if (optionalDeviceExtensions.extendedDynamicState3)
+	if (useExtendedDynamicState3)
 	{
 		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT);
 		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT);
@@ -2460,7 +2493,7 @@ void Graphics::prepareDraw(const VertexAttributes &attributes, const BufferBindi
 		configuration.dynamicState.cullmode = cullmode;
 	}
 	
-	if (!optionalDeviceExtensions.extendedDynamicState3)
+	if (!useExtendedDynamicState3)
 	{
 		configuration.dynamicState3.msaaSamples = renderPassState.msaa;
 		configuration.dynamicState3.wireFrame = states.back().wireframe;
@@ -2653,7 +2686,7 @@ void Graphics::startRenderPass()
 
 	vkCmdBeginRenderPass(commandBuffers.at(currentFrame), &renderPassState.beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-	if (optionalDeviceExtensions.extendedDynamicState3)
+	if (useExtendedDynamicState3)
 	{
 		vkCmdSetRasterizationSamplesEXT(commandBuffers.at(currentFrame), renderPassState.msaa);
 
@@ -2829,7 +2862,7 @@ VkPipeline Graphics::createGraphicsPipeline(GraphicsPipelineConfiguration &confi
 	VkPipelineMultisampleStateCreateInfo multisampling{};
 	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
 	multisampling.sampleShadingEnable = VK_FALSE;
-	if (optionalDeviceExtensions.extendedDynamicState3)
+	if (useExtendedDynamicState3)
 		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 	else
 		multisampling.rasterizationSamples = configuration.dynamicState3.msaaSamples;
@@ -2838,7 +2871,7 @@ VkPipeline Graphics::createGraphicsPipeline(GraphicsPipelineConfiguration &confi
 	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
 	rasterizer.depthClampEnable = VK_FALSE;
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
-	if (!optionalDeviceExtensions.extendedDynamicState3)
+	if (!useExtendedDynamicState3)
 		rasterizer.polygonMode = Vulkan::getPolygonMode(configuration.dynamicState3.wireFrame);
 	rasterizer.lineWidth = 1.0f;
 	if (!optionalDeviceExtensions.extendedDynamicState)
@@ -2905,7 +2938,7 @@ VkPipeline Graphics::createGraphicsPipeline(GraphicsPipelineConfiguration &confi
 	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
 	colorBlending.logicOpEnable = VK_FALSE;
 	colorBlending.logicOp = VK_LOGIC_OP_COPY;
-	if (optionalDeviceExtensions.extendedDynamicState3)
+	if (useExtendedDynamicState3)
 		colorBlending.attachmentCount = configuration.numColorAttachments;
 	else
 	{

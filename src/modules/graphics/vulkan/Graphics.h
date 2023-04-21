@@ -408,6 +408,7 @@ private:
 	VkDevice device = VK_NULL_HANDLE; 
 	OptionalInstanceExtensions optionalInstanceExtensions;
 	OptionalDeviceExtensions optionalDeviceExtensions;
+	bool useExtendedDynamicState3 = false;
 	bool dynamicUnrestrictedTopology = false;
 	std::vector<VkDynamicState> dynamicStates;
 	VkQueue graphicsQueue = VK_NULL_HANDLE;
