@@ -826,11 +826,9 @@ void Shader::compileShaders()
 			}
 			else
 			{
-				auto tex = vgfx->getDefaultTexture();
 				for (int i = 0; i < info.count; i++)
 				{
-					info.textures[i] = tex;
-					tex->retain();
+					info.textures[i] = nullptr;
 				}
 			}
 
@@ -1003,7 +1001,8 @@ void Shader::setVideoTextures(graphics::Texture *ytexture, graphics::Texture *cb
 		if (builtinUniformInfo[builtIns[i]] != nullptr)
 		{
 			textures[i]->retain();
-			builtinUniformInfo[builtIns[i]]->textures[0]->release();
+			if (builtinUniformInfo[builtIns[i]]->textures[0])
+				builtinUniformInfo[builtIns[i]]->textures[0]->release();
 			builtinUniformInfo[builtIns[i]]->textures[0] = textures[i];
 		}
 	}
@@ -1019,7 +1018,8 @@ void Shader::setMainTex(graphics::Texture *texture)
 	if (builtinUniformInfo[BUILTIN_TEXTURE_MAIN] != nullptr)
 	{
 		texture->retain();
-		builtinUniformInfo[BUILTIN_TEXTURE_MAIN]->textures[0]->release();
+		if (builtinUniformInfo[BUILTIN_TEXTURE_MAIN]->textures[0]) 
+			builtinUniformInfo[BUILTIN_TEXTURE_MAIN]->textures[0]->release();
 		builtinUniformInfo[BUILTIN_TEXTURE_MAIN]->textures[0] = texture;
 	}
 }
