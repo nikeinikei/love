@@ -1307,11 +1307,6 @@ const VkDeviceSize Graphics::getMinUniformBufferOffsetAlignment() const
 	return minUniformBufferOffsetAlignment;
 }
 
-graphics::Texture *Graphics::getDefaultTexture() const
-{
-	return defaultTexture;
-}
-
 VkCommandBuffer Graphics::getCommandBufferForDataTransfer()
 {
 	if (renderPassState.active)
