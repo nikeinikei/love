@@ -21,7 +21,7 @@
 #pragma once
 
 #define VK_NO_PROTOTYPES
-#include "vulkan/vulkan.h"
+#include "libraries/vulkanheaders/vulkan/vulkan.h"
 
 #include "libraries/volk/volk.h"
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
