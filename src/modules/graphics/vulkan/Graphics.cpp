@@ -2142,6 +2142,8 @@ void Graphics::createVulkanVertexFormat(
 				usedBuffers.insert(bufferBinding);
 
 				VkVertexInputBindingDescription2EXT bindingDescription{};
+				bindingDescription.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT;
+				bindingDescription.divisor = 1;
 				bindingDescription.binding = bufferBinding;
 				if (vertexAttributes.instanceBits & (1u << bufferBinding))
 					bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
@@ -2154,6 +2156,7 @@ void Graphics::createVulkanVertexFormat(
 			}
 
 			VkVertexInputAttributeDescription2EXT attributeDescription{};
+			attributeDescription.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT;
 			attributeDescription.location = i;
 			attributeDescription.binding = bufferBinding;
 			attributeDescription.offset = attrib.offsetFromVertex;
@@ -2173,12 +2176,15 @@ void Graphics::createVulkanVertexFormat(
 		const auto constantColorBufferBinding = highestBufferBinding + 1;
 
 		VkVertexInputBindingDescription2EXT bindingDescription{};
+		bindingDescription.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT;
 		bindingDescription.binding = constantColorBufferBinding;
 		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 		bindingDescription.stride = 0;	// no stride, will always read the same color multiple times.
+		bindingDescription.divisor = 1;
 		bindingDescriptions.push_back(bindingDescription);
 
 		VkVertexInputAttributeDescription2EXT attributeDescription{};
+		attributeDescription.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT;
 		attributeDescription.binding = constantColorBufferBinding;
 		attributeDescription.location = ATTRIB_COLOR;
 		attributeDescription.offset = 0;

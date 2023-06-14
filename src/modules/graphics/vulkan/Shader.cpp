@@ -307,6 +307,8 @@ void Shader::unloadVolatile()
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		if (computePipeline != VK_NULL_HANDLE)
 			vkDestroyPipeline(device, computePipeline, nullptr);
+		for (const auto shader : shaders)
+			vkDestroyShaderEXT(device, shader, nullptr);
 	});
 
 	while (!freeDescriptorSets.empty())
