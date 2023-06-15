@@ -46,100 +46,6 @@ namespace graphics
 namespace vulkan
 {
 
-struct ColorAttachment
-{
-	VkFormat format = VK_FORMAT_UNDEFINED;
-	VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
-
-	bool operator==(const ColorAttachment &attachment) const
-	{
-		return format == attachment.format && 
-			loadOp == attachment.loadOp &&
-			msaaSamples == attachment.msaaSamples;
-	}
-};
-
-struct DepthStencilAttachment
-{
-	VkFormat format = VK_FORMAT_UNDEFINED;
-	VkAttachmentLoadOp depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	VkAttachmentLoadOp stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
-
-	bool operator==(const DepthStencilAttachment &attachment) const
-	{
-		return format == attachment.format &&
-			depthLoadOp == attachment.depthLoadOp &&
-			stencilLoadOp == attachment.stencilLoadOp &&
-			msaaSamples == attachment.msaaSamples;
-	}
-};
-
-struct RenderPassConfiguration
-{
-	std::vector<ColorAttachment> colorAttachments;
-
-	struct StaticRenderPassConfiguration
-	{
-		DepthStencilAttachment depthStencilAttachment;
-		bool resolve = false;
-	} staticData;
-
-	bool operator==(const RenderPassConfiguration &conf) const
-	{
-		return colorAttachments == conf.colorAttachments && 
-			(memcmp(&staticData, &conf.staticData, sizeof(StaticRenderPassConfiguration)) == 0);
-	}
-};
-
-struct RenderPassConfigurationHasher
-{
-	size_t operator()(const RenderPassConfiguration &configuration) const
-	{
-		size_t hashes[] = { 
-			XXH32(configuration.colorAttachments.data(), configuration.colorAttachments.size() * sizeof(ColorAttachment), 0),
-			XXH32(&configuration.staticData, sizeof(configuration.staticData), 0),
-		};
-		return XXH32(hashes, sizeof(hashes), 0);
-	}
-};
-
-struct FramebufferConfiguration
-{
-	std::vector<VkImageView> colorViews;
-
-	struct StaticFramebufferConfiguration
-	{
-		VkImageView depthView = VK_NULL_HANDLE;
-		VkImageView resolveView = VK_NULL_HANDLE;
-
-		uint32_t width = 0;
-		uint32_t height = 0;
-
-		VkRenderPass renderPass = VK_NULL_HANDLE;
-	} staticData;
-
-	bool operator==(const FramebufferConfiguration &conf) const
-	{
-		return colorViews == conf.colorViews &&
-			(memcmp(&staticData, &conf.staticData, sizeof(StaticFramebufferConfiguration)) == 0);
-	}
-};
-
-struct FramebufferConfigurationHasher
-{
-	size_t operator()(const FramebufferConfiguration &configuration) const
-	{
-		size_t hashes[] = {
-			XXH32(configuration.colorViews.data(), configuration.colorViews.size() * sizeof(VkImageView), 0),
-			XXH32(&configuration.staticData, sizeof(configuration.staticData), 0),
-		};
-
-		return XXH32(hashes, sizeof(hashes), 0);
-	}
-};
-
 struct QueueFamilyIndices
 {
 	Optional<uint32_t> graphicsFamily;
@@ -160,19 +66,17 @@ struct SwapChainSupportDetails
 
 struct RenderpassState
 {
+	VkRenderingInfo renderingInfo{};
+	std::vector<VkRenderingAttachmentInfo> colorAttachments;
+	VkRenderingAttachmentInfo depthAttachment;
+	VkRenderingAttachmentInfo stencilAttachment;
 	bool active = false;
 	Shader* currentShader = nullptr;
-	VkRenderPassBeginInfo beginInfo{};
 	bool isWindow = false;
-	RenderPassConfiguration renderPassConfiguration{};
-	FramebufferConfiguration framebufferConfiguration{};
-	VkPipeline pipeline = VK_NULL_HANDLE;
 	std::vector<VkImage> transitionImages;
-	uint32_t numColorAttachments = 0;
 	float width = 0.0f;
 	float height = 0.0f;
 	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
-	std::vector<VkClearValue> clearColors;
 
 	bool windowClearRequested = false;
 	OptionalColorD mainWindowClearColorValue;
@@ -280,11 +184,7 @@ private:
 	void createSwapChain();
 	void createImageViews();
 	void createScreenshotCallbackBuffers();
-	VkFramebuffer createFramebuffer(FramebufferConfiguration &configuration);
-	VkFramebuffer getFramebuffer(FramebufferConfiguration &configuration);
 	void createDefaultShaders();
-	VkRenderPass createRenderPass(RenderPassConfiguration &configuration);
-	VkRenderPass getRenderPass(RenderPassConfiguration &configuration);
 	void createColorResources();
 	VkFormat findSupportedFormat(const std::vector<VkFormat> &candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 	VkFormat findDepthFormat();
@@ -314,7 +214,6 @@ private:
 	void startRenderPass();
 	void endRenderPass();
 	VkSampler createSampler(const SamplerState &sampler);
-	void cleanupUnusedObjects();
 	void requestSwapchainRecreation();
 
 	VkInstance instance = VK_NULL_HANDLE;
@@ -342,11 +241,6 @@ private:
 	VkImageView depthImageView = VK_NULL_HANDLE;
 	VmaAllocation depthImageAllocation = VK_NULL_HANDLE;
 	VkPipelineCache pipelineCache = VK_NULL_HANDLE;
-	std::unordered_map<RenderPassConfiguration, VkRenderPass, RenderPassConfigurationHasher> renderPasses;
-	std::unordered_map<FramebufferConfiguration, VkFramebuffer, FramebufferConfigurationHasher> framebuffers;
-	std::unordered_map<VkRenderPass, bool> renderPassUsages;
-	std::unordered_map<VkFramebuffer, bool> framebufferUsages;
-	std::unordered_map<VkPipeline, bool> pipelineUsages;
 	std::unordered_map<uint64, VkSampler> samplers;
 	VkCommandPool commandPool = VK_NULL_HANDLE;
 	std::vector<VkCommandBuffer> commandBuffers;
