@@ -93,16 +93,12 @@ private:
 	void calculateUniformBufferSizeAligned();
 	void compileShaders();
 	void createPipelineLayout();
-	void createDescriptorPoolSizes();
 	void createStreamBuffers();
 	void buildLocalUniforms(
 		spirv_cross::Compiler &comp, 
 		const spirv_cross::SPIRType &type, 
 		size_t baseoff, 
 		const std::string &basename);
-	void updateUniform(const UniformInfo *info, int count, bool internal);
-
-	VkDescriptorSet allocateDescriptorSet();
 
 	std::vector<VkShaderEXT> shaders;
 	std::vector<VkShaderStageFlagBits> shaderTypes;
@@ -113,34 +109,25 @@ private:
 
 	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
-	std::vector<VkDescriptorPoolSize> descriptorPoolSizes;
 
 	// we don't know how much memory we need per frame for the uniform buffer descriptors
 	// we keep a vector of stream buffers that gets dynamically increased if more memory is needed
 	std::vector<StreamBuffer*> streamBuffers;
-	std::vector<VkDescriptorPool> descriptorPools;
-	std::queue<VkDescriptorSet> freeDescriptorSets;
-	std::vector<std::vector<VkDescriptorSet>> descriptorSetsVector;
-
-	std::set<uint32_t> updatedUniforms;
 
 	Graphics *vgfx = nullptr;
-	VkDevice device;
+	VkDevice device = VK_NULL_HANDLE;
 
 	bool isCompute = false;
 
 	std::unordered_map<std::string, graphics::Shader::UniformInfo> uniformInfos;
 	UniformInfo *builtinUniformInfo[BUILTIN_MAX_ENUM];
 
-	std::unique_ptr<StreamBuffer> uniformBufferObjectBuffer;
 	std::vector<uint8> localUniformData;
 	std::vector<uint8> localUniformStagingData;
 	uint32_t localUniformLocation;
 	OptionalInt builtinUniformDataOffset;
 
 	std::unordered_map<std::string, int> attributes;
-
-	VkDescriptorSet currentDescriptorSet;
 
 	uint32_t currentFrame;
 	uint32_t currentUsedUniformStreamBuffersCount;
