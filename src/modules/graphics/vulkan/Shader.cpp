@@ -244,8 +244,6 @@ bool Shader::loadVolatile()
 {
 	device = vgfx->getDevice();
 
-	computePipeline = VK_NULL_HANDLE;
-
 	for (int i = 0; i < BUILTIN_MAX_ENUM; i++)
 		builtinUniformInfo[i] = nullptr;
 
@@ -290,11 +288,9 @@ void Shader::unloadVolatile()
 		}
 	}
 
-	vgfx->queueCleanUp([shaders = std::move(shaders), device = device, descriptorSetLayout = descriptorSetLayout, pipelineLayout = pipelineLayout, computePipeline = computePipeline](){
+	vgfx->queueCleanUp([shaders = std::move(shaders), device = device, descriptorSetLayout = descriptorSetLayout, pipelineLayout = pipelineLayout](){
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-		if (computePipeline != VK_NULL_HANDLE)
-			vkDestroyPipeline(device, computePipeline, nullptr);
 		for (const auto shader : shaders)
 			vkDestroyShaderEXT(device, shader, nullptr);
 	});
@@ -304,11 +300,6 @@ void Shader::unloadVolatile()
 
 	shaders.clear();
 	streamBuffers.clear();
-}
-
-VkPipeline Shader::getComputePipeline() const
-{
-	return computePipeline;
 }
 
 const std::vector<VkShaderEXT>& Shader::getShaders() const {

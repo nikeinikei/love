@@ -105,8 +105,6 @@ private:
 
 	VkDeviceSize uniformBufferSizeAligned;
 
-	VkPipeline computePipeline;
-
 	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
 

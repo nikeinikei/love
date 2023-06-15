@@ -936,6 +936,7 @@ void Graphics::setDepthMode(CompareMode compare, bool write)
 {
 	flushBatchedDraws();
 
+	vkCmdSetDepthTestEnable(commandBuffers.at(currentFrame), VK_TRUE);
 	vkCmdSetDepthCompareOpEXT(commandBuffers.at(currentFrame), Vulkan::getCompareOp(compare));
 	vkCmdSetDepthWriteEnableEXT(commandBuffers.at(currentFrame), Vulkan::getBool(write));
 
@@ -1149,6 +1150,7 @@ void Graphics::initDynamicState()
 	vkCmdSetStencilCompareMask(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, states.back().stencil.readMask);
 	vkCmdSetStencilReference(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, states.back().stencil.value);
 	vkCmdSetStencilOpEXT(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, VK_STENCIL_OP_KEEP, Vulkan::getStencilOp(states.back().stencil.action), VK_STENCIL_OP_KEEP, Vulkan::getCompareOp(getReversedCompareMode(states.back().stencil.compare)));
+	vkCmdSetDepthTestEnable(commandBuffers.at(currentFrame), VK_TRUE);
 	vkCmdSetDepthCompareOpEXT(commandBuffers.at(currentFrame), Vulkan::getCompareOp(states.back().depthTest));
 	vkCmdSetDepthWriteEnableEXT(commandBuffers.at(currentFrame), Vulkan::getBool(states.back().depthWrite));
 	vkCmdSetFrontFaceEXT(commandBuffers.at(currentFrame), Vulkan::getFrontFace(states.back().winding));
