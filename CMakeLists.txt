@@ -89,7 +89,7 @@ if(MEGA)
 	# LOVE_INCLUDE_DIRS contains the search directories for #include. It's mostly
 	# not needed for MEGA builds, since almost all the libraries (except LuaJIT)
 	# are CMake targets, causing include paths to be added automatically.
-	set(LOVE_INCLUDE_DIRS src/libraries/vulkanheaders)
+	set(LOVE_INCLUDE_DIRS)
 
 	if(APPLE)
 		# Some files do #include <SDL2/SDL.h>, but building with megasource
