@@ -693,16 +693,63 @@ void Graphics::setFrontFaceWinding(Winding winding)
 
 void Graphics::setColorMask(ColorChannelMask mask)
 {
+	const auto &currentState = states.back();
+
+	if (states.back().colorMask == mask)
+		return;
+
 	flushBatchedDraws();
 
 	states.back().colorMask = mask;
+
+	if (renderPassState.active)
+	{
+		const auto numColorAttachments = renderPassState.colorAttachments.size();
+
+		VkColorComponentFlags colorComponentFlags{};
+		if (currentState.colorMask.r)
+			colorComponentFlags |= VK_COLOR_COMPONENT_R_BIT;
+		if (currentState.colorMask.g)
+			colorComponentFlags |= VK_COLOR_COMPONENT_G_BIT;
+		if (currentState.colorMask.b)
+			colorComponentFlags |= VK_COLOR_COMPONENT_B_BIT;
+		if (currentState.colorMask.a)
+			colorComponentFlags |= VK_COLOR_COMPONENT_A_BIT;
+
+		std::vector<VkColorComponentFlags> colorComponents(numColorAttachments, colorComponentFlags);
+
+		vkCmdSetColorWriteMaskEXT(commandBuffers.at(currentFrame), 0, colorComponents.size(), colorComponents.data());
+	}
 }
 
 void Graphics::setBlendState(const BlendState &blend)
 {
+	if (states.back().blend == blend)
+		return;
+	
 	flushBatchedDraws();
 
 	states.back().blend = blend;
+
+	if (renderPassState.active)
+	{
+		const auto &currentState = states.back();
+		const auto numColorAttachments = renderPassState.colorAttachments.size();
+
+		std::vector<VkBool32> blendEnables(numColorAttachments, currentState.blend.enable);
+		vkCmdSetColorBlendEnableEXT(commandBuffers.at(currentFrame), 0, blendEnables.size(), blendEnables.data());
+
+		VkColorBlendEquationEXT blendEquation{};
+		blendEquation.srcColorBlendFactor = Vulkan::getBlendFactor(currentState.blend.srcFactorRGB);
+		blendEquation.dstColorBlendFactor = Vulkan::getBlendFactor(currentState.blend.dstFactorRGB);
+		blendEquation.colorBlendOp = Vulkan::getBlendOp(currentState.blend.operationRGB);
+		blendEquation.srcAlphaBlendFactor = Vulkan::getBlendFactor(currentState.blend.srcFactorA);
+		blendEquation.dstAlphaBlendFactor = Vulkan::getBlendFactor(currentState.blend.dstFactorA);
+		blendEquation.alphaBlendOp = Vulkan::getBlendOp(currentState.blend.operationA);
+
+		std::vector<VkColorBlendEquationEXT> blendEquations(numColorAttachments, blendEquation);
+		vkCmdSetColorBlendEquationEXT(commandBuffers.at(currentFrame), 0, blendEquations.size(), blendEquations.data());
+	}
 }
 
 void Graphics::setPointSize(float size)
@@ -945,9 +992,14 @@ void Graphics::setDepthMode(CompareMode compare, bool write)
 
 void Graphics::setWireframe(bool enable)
 {
+	if (states.back().wireframe == enable)
+		return;
+
 	flushBatchedDraws();
 
 	states.back().wireframe = enable;
+
+	vkCmdSetPolygonModeEXT(commandBuffers.at(currentFrame), Vulkan::getPolygonMode(enable));
 }
 
 PixelFormat Graphics::getSizedFormat(PixelFormat format, bool rendertarget, bool readable) const
@@ -1153,6 +1205,7 @@ void Graphics::initDynamicState()
 	vkCmdSetDepthCompareOpEXT(commandBuffers.at(currentFrame), Vulkan::getCompareOp(states.back().depthTest));
 	vkCmdSetDepthWriteEnableEXT(commandBuffers.at(currentFrame), Vulkan::getBool(states.back().depthWrite));
 	vkCmdSetFrontFaceEXT(commandBuffers.at(currentFrame), Vulkan::getFrontFace(states.back().winding));
+	vkCmdSetPolygonModeEXT(commandBuffers.at(currentFrame), Vulkan::getPolygonMode(states.back().wireframe));
 }
 
 void Graphics::beginFrame()
@@ -1214,9 +1267,6 @@ void Graphics::beginFrame()
 	for (const auto shader : usedShadersInFrame)
 		shader->newFrame();
 	usedShadersInFrame.clear();
-
-	if (Shader::current)
-		Shader::current->attach();
 }
 
 void Graphics::startRecordingGraphicsCommands()
@@ -2076,38 +2126,6 @@ void Graphics::prepareDraw(const VertexAttributes &attributes, const BufferBindi
 
 	vkCmdSetVertexInputEXT(commandBuffer, bindingDescriptions.size(), bindingDescriptions.data(), attributeDescriptions.size(), attributeDescriptions.data());
 
-	vkCmdSetPolygonModeEXT(commandBuffer, Vulkan::getPolygonMode(currentState.wireframe));
-
-	std::vector<VkBool32> blendEnables(numColorAttachments, currentState.blend.enable);
-	vkCmdSetColorBlendEnableEXT(commandBuffer, 0, blendEnables.size(), blendEnables.data());
-
-	VkColorBlendEquationEXT blendEquation{};
-	blendEquation.srcColorBlendFactor = Vulkan::getBlendFactor(currentState.blend.srcFactorRGB);
-	blendEquation.dstColorBlendFactor = Vulkan::getBlendFactor(currentState.blend.dstFactorRGB);
-	blendEquation.colorBlendOp = Vulkan::getBlendOp(currentState.blend.operationRGB);
-	blendEquation.srcAlphaBlendFactor = Vulkan::getBlendFactor(currentState.blend.srcFactorA);
-	blendEquation.dstAlphaBlendFactor = Vulkan::getBlendFactor(currentState.blend.dstFactorA);
-	blendEquation.alphaBlendOp = Vulkan::getBlendOp(currentState.blend.operationA);
-
-	std::vector<VkColorBlendEquationEXT> blendEquations(numColorAttachments, blendEquation);
-	vkCmdSetColorBlendEquationEXT(commandBuffer, 0, blendEquations.size(), blendEquations.data());
-
-	VkColorComponentFlags colorComponentFlags{};
-	if (currentState.colorMask.r)
-		colorComponentFlags |= VK_COLOR_COMPONENT_R_BIT;
-	if (currentState.colorMask.g)
-		colorComponentFlags |= VK_COLOR_COMPONENT_G_BIT;
-	if (currentState.colorMask.b)
-		colorComponentFlags |= VK_COLOR_COMPONENT_B_BIT;
-	if (currentState.colorMask.a)
-		colorComponentFlags |= VK_COLOR_COMPONENT_A_BIT;
-
-	std::vector<VkColorComponentFlags> colorComponents(numColorAttachments, colorComponentFlags);
-
-	vkCmdSetColorWriteMaskEXT(commandBuffer, 0, colorComponents.size(), colorComponents.data());
-
-	vkCmdSetRasterizationSamplesEXT(commandBuffer, msaaSamples);
-
 	vkCmdSetPrimitiveTopologyEXT(commandBuffer, Vulkan::getPrimitiveTypeTopology(primitiveType));
 	
 	vkCmdSetCullModeEXT(commandBuffer, Vulkan::getCullMode(cullmode));
@@ -2291,7 +2309,40 @@ void Graphics::startRenderPass()
 	for (const auto &image : renderPassState.transitionImages)
 		Vulkan::cmdTransitionImageLayout(commandBuffers.at(currentFrame), image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
+	const auto& currentState = states.back();
+	const auto numColorAttachments = renderPassState.colorAttachments.size();
+
 	vkCmdBeginRendering(commandBuffers.at(currentFrame), &renderPassState.renderingInfo);
+
+	std::vector<VkBool32> blendEnables(numColorAttachments, currentState.blend.enable);
+	vkCmdSetColorBlendEnableEXT(commandBuffers.at(currentFrame), 0, blendEnables.size(), blendEnables.data());
+
+	VkColorBlendEquationEXT blendEquation{};
+	blendEquation.srcColorBlendFactor = Vulkan::getBlendFactor(currentState.blend.srcFactorRGB);
+	blendEquation.dstColorBlendFactor = Vulkan::getBlendFactor(currentState.blend.dstFactorRGB);
+	blendEquation.colorBlendOp = Vulkan::getBlendOp(currentState.blend.operationRGB);
+	blendEquation.srcAlphaBlendFactor = Vulkan::getBlendFactor(currentState.blend.srcFactorA);
+	blendEquation.dstAlphaBlendFactor = Vulkan::getBlendFactor(currentState.blend.dstFactorA);
+	blendEquation.alphaBlendOp = Vulkan::getBlendOp(currentState.blend.operationA);
+
+	std::vector<VkColorBlendEquationEXT> blendEquations(numColorAttachments, blendEquation);
+	vkCmdSetColorBlendEquationEXT(commandBuffers.at(currentFrame), 0, blendEquations.size(), blendEquations.data());
+
+	VkColorComponentFlags colorComponentFlags{};
+	if (currentState.colorMask.r)
+		colorComponentFlags |= VK_COLOR_COMPONENT_R_BIT;
+	if (currentState.colorMask.g)
+		colorComponentFlags |= VK_COLOR_COMPONENT_G_BIT;
+	if (currentState.colorMask.b)
+		colorComponentFlags |= VK_COLOR_COMPONENT_B_BIT;
+	if (currentState.colorMask.a)
+		colorComponentFlags |= VK_COLOR_COMPONENT_A_BIT;
+
+	std::vector<VkColorComponentFlags> colorComponents(numColorAttachments, colorComponentFlags);
+
+	vkCmdSetColorWriteMaskEXT(commandBuffers.at(currentFrame), 0, colorComponents.size(), colorComponents.data());
+
+	vkCmdSetRasterizationSamplesEXT(commandBuffers.at(currentFrame), msaaSamples);
 }
 
 void Graphics::endRenderPass()
