@@ -55,7 +55,6 @@ static const std::vector<const char*> validationLayers = {
 };
 
 static const std::vector<const char*> deviceExtensions = {
-	VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME,
 	VK_EXT_MEMORY_BUDGET_EXTENSION_NAME,
 	VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
 	VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
