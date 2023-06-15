@@ -2066,6 +2066,7 @@ void Graphics::prepareDraw(const VertexAttributes &attributes, const BufferBindi
 	blendEquation.alphaBlendOp = Vulkan::getBlendOp(currentState.blend.operationA);
 
 	std::vector<VkColorBlendEquationEXT> blendEquations(numColorAttachments, blendEquation);
+	vkCmdSetColorBlendEquationEXT(commandBuffer, 0, blendEquations.size(), blendEquations.data());
 
 	VkColorComponentFlags colorComponentFlags{};
 	if (currentState.colorMask.r)
