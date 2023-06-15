@@ -255,7 +255,6 @@ bool Shader::loadVolatile()
 	createStreamBuffers();
 	currentFrame = 0;
 	currentUsedUniformStreamBuffersCount = 0;
-	currentUsedDescriptorSetsCount = 0;
 	newFrame();
 
 	return true;
@@ -325,7 +324,6 @@ void Shader::newFrame()
 	currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
 	currentUsedUniformStreamBuffersCount = 0;
-	currentUsedDescriptorSetsCount = 0;
 
 	if (streamBuffers.size() > 1)
 	{
@@ -345,8 +343,14 @@ void Shader::newFrame()
 void Shader::cmdPushDescriptorSets(VkCommandBuffer commandBuffer, VkPipelineBindPoint bindPoint)
 {
 	std::vector<VkDescriptorBufferInfo> bufferInfos;
+	bufferInfos.reserve(numBufferInfos);
+
 	std::vector<VkDescriptorImageInfo> imageInfos;
+	imageInfos.reserve(numImageInfos);
+
 	std::vector<VkBufferView> bufferViews;
+	bufferViews.reserve(numBufferViews);
+
 	std::vector<VkWriteDescriptorSet> descriptorWrites;
 
 	if (!localUniformData.empty())
@@ -820,9 +824,7 @@ void Shader::compileShaders()
 			else
 			{
 				for (int i = 0; i < info.count; i++)
-				{
 					info.textures[i] = nullptr;
-				}
 			}
 
 			uniformInfos[r.name] = info;
@@ -954,6 +956,33 @@ void Shader::compileShaders()
 
 	if (vkCreateShadersEXT(device, shaderInfos.size(), shaderInfos.data(), nullptr, shaders.data()) != VK_SUCCESS)
 		throw love::Exception("could not create shaders");
+
+	numBufferInfos = 0;
+	numImageInfos = 0;
+	numBufferViews = 0;
+
+	if (!localUniformData.empty())
+		numBufferInfos++;
+
+	for (auto& u : uniformInfos)
+	{
+		switch (u.second.baseType) {
+		case UNIFORM_SAMPLER:
+		case UNIFORM_STORAGETEXTURE:
+			numImageInfos += u.second.count;
+			break;
+
+		case UNIFORM_STORAGEBUFFER:
+			numBufferInfos += u.second.count;
+			break;
+
+		case UNIFORM_TEXELBUFFER:
+			numBufferViews += u.second.count;
+			break;
+		default:
+			continue;
+		}
+	}
 }
 
 void Shader::createPipelineLayout()

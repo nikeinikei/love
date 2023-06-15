@@ -131,7 +131,10 @@ private:
 
 	uint32_t currentFrame;
 	uint32_t currentUsedUniformStreamBuffersCount;
-	uint32_t currentUsedDescriptorSetsCount;
+
+	uint32_t numBufferViews;
+	uint32_t numBufferInfos;
+	uint32_t numImageInfos;
 };
 
 }

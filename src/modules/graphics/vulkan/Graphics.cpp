@@ -1072,34 +1072,48 @@ graphics::StreamBuffer *Graphics::newStreamBuffer(BufferUsage type, size_t size)
 
 bool Graphics::dispatch(love::graphics::Shader *shader, int x, int y, int z)
 {
+	Shader* computeShader = dynamic_cast<Shader*>(shader);
+
 	usedShadersInFrame.insert(computeShader);
 
 	if (renderPassState.active)
 		endRenderPass();
 
-	vkCmdBindPipeline(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE, computeShader->getComputePipeline());
+	const auto &shaders = computeShader->getShaders();
+	const auto &shaderTypes = computeShader->getShaderTypes();
+
+	vkCmdBindShadersEXT(commandBuffers.at(currentFrame), shaders.size(), shaderTypes.data(), shaders.data());
 
 	computeShader->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE);
 
 	// TODO: does this need any layout transitions?
 	vkCmdDispatch(commandBuffers.at(currentFrame), (uint32) x, (uint32) y, (uint32) z);
 
+	vkCmdBindShadersEXT(commandBuffers.at(currentFrame), shaders.size(), shaderTypes.data(), nullptr);
+
 	return true;
 }
 
 bool Graphics::dispatch(love::graphics::Shader *shader, love::graphics::Buffer *indirectargs, size_t argsoffset)
 {
+	Shader* computeShader = dynamic_cast<Shader*>(shader);
+
 	usedShadersInFrame.insert(computeShader);
 
 	if (renderPassState.active)
 		endRenderPass();
 
-	vkCmdBindPipeline(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE, computeShader->getComputePipeline());
+	const auto &shaders = computeShader->getShaders();
+	const auto &shaderTypes = computeShader->getShaderTypes();
+
+	vkCmdBindShadersEXT(commandBuffers.at(currentFrame), shaders.size(), shaderTypes.data(), shaders.data());
 
 	computeShader->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE);
 
 	// TODO: does this need any layout transitions?
 	vkCmdDispatchIndirect(commandBuffers.at(currentFrame), (VkBuffer) indirectargs->getHandle(), argsoffset);
+
+	vkCmdBindShadersEXT(commandBuffers.at(currentFrame), shaders.size(), shaderTypes.data(), nullptr);
 
 	return true;
 }
@@ -2344,11 +2358,6 @@ void Graphics::requestSwapchainRecreation()
 	{
 		swapChainRecreationRequested = true;
 	}
-}
-
-void Graphics::setComputeShader(Shader *shader)
-{
-	computeShader = shader;
 }
 
 VkSampler Graphics::getCachedSampler(const SamplerState &samplerState)

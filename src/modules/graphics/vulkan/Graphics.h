@@ -146,7 +146,6 @@ public:
 	void submitGpuCommands(bool present, void *screenshotCallbackData = nullptr);
 	const VkDeviceSize getMinUniformBufferOffsetAlignment() const;
 	VkSampler getCachedSampler(const SamplerState &sampler);
-	void setComputeShader(Shader *computeShader);
 	graphics::Shader::BuiltinUniformData getCurrentBuiltinUniformData();
 	VkSampleCountFlagBits getMsaaCount(int requestedMsaa) const;
 	void setVsync(int vsync);
@@ -241,7 +240,6 @@ private:
 	std::unordered_map<uint64, VkSampler> samplers;
 	VkCommandPool commandPool = VK_NULL_HANDLE;
 	std::vector<VkCommandBuffer> commandBuffers;
-	Shader *computeShader = nullptr;
 	std::vector<VkSemaphore> imageAvailableSemaphores;
 	std::vector<VkSemaphore> renderFinishedSemaphores;
 	std::vector<VkFence> inFlightFences;
