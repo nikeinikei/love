@@ -1133,7 +1133,7 @@ bool Graphics::dispatch(love::graphics::Shader *shader, int x, int y, int z)
 
 	vkCmdBindPipeline(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE, computeShader->getComputePipeline());
 
-	computeShader->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE);
+	computeShader->cmdBindDescriptors(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE);
 
 	// TODO: does this need any layout transitions?
 	vkCmdDispatch(commandBuffers.at(currentFrame), (uint32) x, (uint32) y, (uint32) z);
@@ -1150,7 +1150,7 @@ bool Graphics::dispatch(love::graphics::Shader *shader, love::graphics::Buffer *
 
 	vkCmdBindPipeline(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE, computeShader->getComputePipeline());
 
-	computeShader->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE);
+	computeShader->cmdBindDescriptors(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE);
 
 	// TODO: does this need any layout transitions?
 	vkCmdDispatchIndirect(commandBuffers.at(currentFrame), (VkBuffer) indirectargs->getHandle(), argsoffset);
@@ -1291,6 +1291,10 @@ void Graphics::startRecordingGraphicsCommands()
 	initDynamicState();
 
 	setDefaultRenderPass();
+
+	renderPassState.vertexAttributes.clear();
+	renderPassState.cullMode.clear();
+	renderPassState.primitiveType.clear();
 }
 
 void Graphics::endRecordingGraphicsCommands() {
@@ -2471,12 +2475,24 @@ void Graphics::prepareDraw(const VertexAttributes &attributes, const BufferBindi
 	configuration.numColorAttachments = renderPassState.numColorAttachments;
 
 	if (dynamicUnrestrictedTopology)
-		vkCmdSetPrimitiveTopologyEXT(commandBuffers.at(currentFrame), Vulkan::getPrimitiveTypeTopology(primitiveType));
+	{
+		if (!renderPassState.primitiveType.hasValue || renderPassState.primitiveType.get(PRIMITIVE_MAX_ENUM) != primitiveType)
+		{
+			vkCmdSetPrimitiveTopologyEXT(commandBuffers.at(currentFrame), Vulkan::getPrimitiveTypeTopology(primitiveType));
+			renderPassState.primitiveType.set(primitiveType);
+		}
+	}
 	else
 		configuration.unrestrictedTopology.primitiveType = primitiveType;
 
 	if (optionalDeviceExtensions.extendedDynamicState)
-		vkCmdSetCullModeEXT(commandBuffers.at(currentFrame), Vulkan::getCullMode(cullmode));
+	{
+		if (!renderPassState.cullMode.hasValue || renderPassState.cullMode.get(CULL_MAX_ENUM) != cullmode)
+		{
+			vkCmdSetCullModeEXT(commandBuffers.at(currentFrame), Vulkan::getCullMode(cullmode));
+			renderPassState.cullMode.set(cullmode);
+		}
+	}
 	else
 	{
 		configuration.dynamicState.winding = states.back().winding;
@@ -2497,21 +2513,25 @@ void Graphics::prepareDraw(const VertexAttributes &attributes, const BufferBindi
 
 	if (optionalDeviceExtensions.vertexInputDynamicState)
 	{
-		std::vector<VkVertexInputBindingDescription2EXT> vertexBindings;
-		std::vector<VkVertexInputAttributeDescription2EXT> vertexAttributes;
-
-		createVulkanVertexFormat(attributes, vertexBindings, vertexAttributes);
-
-		for (auto& binding : vertexBindings)
+		if (!renderPassState.vertexAttributes.hasValue || renderPassState.vertexAttributes.get({}) != attributes)
 		{
-			binding.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT;
-			binding.divisor = 1;
+			std::vector<VkVertexInputBindingDescription2EXT> vertexBindings;
+			std::vector<VkVertexInputAttributeDescription2EXT> vertexAttributes;
+
+			createVulkanVertexFormat(attributes, vertexBindings, vertexAttributes);
+
+			for (auto& binding : vertexBindings)
+			{
+				binding.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT;
+				binding.divisor = 1;
+			}
+
+			for (auto& attr : vertexAttributes)
+				attr.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT;
+
+			vkCmdSetVertexInputEXT(commandBuffers.at(currentFrame), vertexBindings.size(), vertexBindings.data(), vertexAttributes.size(), vertexAttributes.data());
+			renderPassState.vertexAttributes.set(attributes);
 		}
-
-		for (auto& attr : vertexAttributes)
-			attr.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT;
-
-		vkCmdSetVertexInputEXT(commandBuffers.at(currentFrame), vertexBindings.size(), vertexBindings.data(), vertexAttributes.size(), vertexAttributes.data());
 	}
 	else
 		configuration.vertexInput.vertexAttributes = attributes;
@@ -2541,7 +2561,7 @@ void Graphics::prepareDraw(const VertexAttributes &attributes, const BufferBindi
 
 	ensureGraphicsPipelineConfiguration(configuration);
 
-	configuration.shader->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_GRAPHICS);
+	configuration.shader->cmdBindDescriptors(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_GRAPHICS);
 	vkCmdBindVertexBuffers(commandBuffers.at(currentFrame), 0, static_cast<uint32_t>(bufferVector.size()), bufferVector.data(), offsets.data());
 }
 

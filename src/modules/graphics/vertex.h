@@ -374,6 +374,11 @@ struct VertexAttributes
 	void setCommonFormat(CommonFormat format, uint8 bufferindex);
 
 	bool operator == (const VertexAttributes &other) const;
+
+	bool operator != (const VertexAttributes& other) const
+	{
+		return !(*this == other);
+	}
 };
 
 size_t getFormatStride(CommonFormat format);

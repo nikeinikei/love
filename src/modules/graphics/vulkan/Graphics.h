@@ -257,6 +257,9 @@ struct RenderpassState
 	float height = 0.0f;
 	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
 	std::vector<VkClearValue> clearColors;
+	Optional<VertexAttributes> vertexAttributes;
+	Optional<CullMode> cullMode;
+	Optional<PrimitiveType> primitiveType;
 
 	bool windowClearRequested = false;
 	OptionalColorD mainWindowClearColorValue;

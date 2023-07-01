@@ -66,7 +66,7 @@ public:
 
 	void newFrame();
 
-	void cmdPushDescriptorSets(VkCommandBuffer, VkPipelineBindPoint);
+	void cmdBindDescriptors(VkCommandBuffer, VkPipelineBindPoint);
 
 	void attach() override;
 
@@ -97,12 +97,7 @@ private:
 	void createPipelineLayout();
 	void createDescriptorPoolSizes();
 	void createStreamBuffers();
-	void buildLocalUniforms(
-		spirv_cross::Compiler &comp, 
-		const spirv_cross::SPIRType &type, 
-		size_t baseoff, 
-		const std::string &basename);
-	void updateUniform(const UniformInfo *info, int count, bool internal);
+	void buildLocalUniforms(spirv_cross::Compiler &comp, const spirv_cross::SPIRType &type, size_t baseoff, const std::string &basename);
 
 	VkDescriptorSet allocateDescriptorSet();
 
@@ -121,13 +116,11 @@ private:
 	std::queue<VkDescriptorSet> freeDescriptorSets;
 	std::vector<std::vector<VkDescriptorSet>> descriptorSetsVector;
 
-	std::set<uint32_t> updatedUniforms;
-
 	std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
 	std::vector<VkShaderModule> shaderModules;
 
 	Graphics *vgfx = nullptr;
-	VkDevice device;
+	VkDevice device = VK_NULL_HANDLE;
 
 	bool isCompute = false;
 
