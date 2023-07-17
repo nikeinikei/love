@@ -1680,6 +1680,8 @@ void Graphics::createLogicalDevice()
 
 		if (!dynamicState3Features.extendedDynamicState3RasterizationSamples)
 			useExtendedDynamicState3 = false;
+		if (!dynamicState3Features.extendedDynamicState3ColorBlendAdvanced)
+			useExtendedDynamicState3 = false;
 		if (!dynamicState3Features.extendedDynamicState3ColorBlendEnable)
 			useExtendedDynamicState3 = false;
 		if (!dynamicState3Features.extendedDynamicState3ColorBlendEquation)
@@ -1761,14 +1763,12 @@ void Graphics::createLogicalDevice()
 
 	VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extendedDynamicState3Features{};
 	extendedDynamicState3Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
-	if (useExtendedDynamicState3)
-	{
-		extendedDynamicState3Features.extendedDynamicState3RasterizationSamples = VK_TRUE;
-		extendedDynamicState3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
-		extendedDynamicState3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
-		extendedDynamicState3Features.extendedDynamicState3PolygonMode = VK_TRUE;
-		extendedDynamicState3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
-	}
+	extendedDynamicState3Features.extendedDynamicState3RasterizationSamples = VK_TRUE;
+	extendedDynamicState3Features.extendedDynamicState3ColorBlendAdvanced = VK_TRUE;
+	extendedDynamicState3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
+	extendedDynamicState3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
+	extendedDynamicState3Features.extendedDynamicState3PolygonMode = VK_TRUE;
+	extendedDynamicState3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
 	if (optionalDeviceExtensions.extendedDynamicState3)
 	{
 		chain->pNext = (const VkBaseInStructure*) &extendedDynamicState3Features;
@@ -1817,6 +1817,7 @@ void Graphics::createLogicalDevice()
 
 	if (useExtendedDynamicState3)
 	{
+		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ADVANCED_EXT);
 		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT);
 		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT);
 		dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT);
@@ -2700,13 +2701,24 @@ void Graphics::startRenderPass()
 
 	if (useExtendedDynamicState3)
 	{
+		const auto &blendState = states.back().blend;
+
+		VkColorBlendAdvancedEXT advancedBlend{};
+		advancedBlend.advancedBlendOp = Vulkan::getBlendOp(blendState.operationRGB);
+		advancedBlend.blendOverlap = VK_BLEND_OVERLAP_UNCORRELATED_EXT;
+		advancedBlend.clampResults = VK_FALSE;
+		advancedBlend.dstPremultiplied = VK_FALSE;
+		advancedBlend.srcPremultiplied = VK_FALSE;
+
+		std::vector<VkColorBlendAdvancedEXT> advancedBlends(renderPassState.numColorAttachments, advancedBlend);
+
+		vkCmdSetColorBlendAdvancedEXT(commandBuffers.at(currentFrame), 0, advancedBlends.size(), advancedBlends.data());
+
 		vkCmdSetRasterizationSamplesEXT(commandBuffers.at(currentFrame), renderPassState.msaa);
 
 		std::vector<VkColorComponentFlags> colorWrites(renderPassState.numColorAttachments, Vulkan::getColorMask(states.back().colorMask));
 
 		vkCmdSetColorWriteMaskEXT(commandBuffers.at(currentFrame), 0, colorWrites.size(), colorWrites.data());
-
-		const auto &blendState = states.back().blend;
 
 		std::vector<VkBool32> blendEnables(renderPassState.numColorAttachments, blendState.enable);
 
