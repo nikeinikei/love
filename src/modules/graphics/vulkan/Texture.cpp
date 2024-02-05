@@ -236,7 +236,12 @@ void Texture::unloadVolatile()
 				vkDestroyImageView(device, view, nullptr);
 	});
 
+	device = VK_NULL_HANDLE;
+	allocator = VK_NULL_HANDLE;
+	textureImageAllocation = VK_NULL_HANDLE;
+	textureImageView = VK_NULL_HANDLE;
 	textureImage = VK_NULL_HANDLE;
+	renderTargetImageViews.clear();
 
 	setGraphicsMemorySize(0);
 }

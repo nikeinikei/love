@@ -216,9 +216,14 @@ void Shader::unloadVolatile()
 		streamBuffer->release();
 
 	shaderModules.clear();
+	uniformInfos.clear();
 	shaderStages.clear();
 	streamBuffers.clear();
 	descriptorPools.clear();
+	device = VK_NULL_HANDLE;
+	descriptorSetLayout = VK_NULL_HANDLE;
+	pipelineLayout = VK_NULL_HANDLE;
+	computePipeline = VK_NULL_HANDLE;
 }
 
 const std::vector<VkPipelineShaderStageCreateInfo> &Shader::getShaderStages() const

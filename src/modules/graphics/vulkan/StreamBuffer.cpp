@@ -50,6 +50,9 @@ StreamBuffer::StreamBuffer(graphics::Graphics *gfx, BufferUsage mode, size_t siz
 
 bool StreamBuffer::loadVolatile()
 {
+	if (buffer)
+		return true;
+
 	allocator = vgfx->getVmaAllocator();
 
 	VkBufferCreateInfo bufferInfo{};
@@ -83,7 +86,10 @@ void StreamBuffer::unloadVolatile()
 	vgfx->queueCleanUp([allocator=allocator, buffer=buffer, allocation=allocation](){
 		vmaDestroyBuffer(allocator, buffer, allocation);
 	});
+
+	allocator = VK_NULL_HANDLE;
 	buffer = VK_NULL_HANDLE;
+	allocation = VK_NULL_HANDLE;
 }
 
 StreamBuffer::~StreamBuffer()

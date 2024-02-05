@@ -67,6 +67,9 @@ Buffer::Buffer(love::graphics::Graphics *gfx, const Settings &settings, const st
 
 bool Buffer::loadVolatile()
 {
+	if (buffer)
+		return true;
+
 	allocator = vgfx->getVmaAllocator();
 
 	VkBufferCreateInfo bufferInfo{};
@@ -138,8 +141,10 @@ void Buffer::unloadVolatile()
 			vkDestroyBufferView(device, bufferView, nullptr);
 	});
 
+	allocator = VK_NULL_HANDLE;
 	buffer = VK_NULL_HANDLE;
 	bufferView = VK_NULL_HANDLE;
+	allocation = VK_NULL_HANDLE;
 }
 
 Buffer::~Buffer()

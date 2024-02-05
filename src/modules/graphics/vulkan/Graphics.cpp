@@ -158,8 +158,6 @@ Graphics::~Graphics()
 	defaultConstantTexCoord.set(nullptr);
 	defaultConstantColor.set(nullptr);
 
-	Volatile::unloadAll();
-	cleanup();
 	vkDestroyInstance(instance, nullptr);
 
 	SDL_Vulkan_UnloadLibrary();
@@ -224,7 +222,7 @@ void Graphics::clear(OptionalColorD color, OptionalInt stencil, OptionalDouble d
 		rect.rect.extent.height = static_cast<uint32_t>(renderPassState.height);
 
 		vkCmdClearAttachments(
-			commandBuffers[currentFrame], 
+			commandBuffers.at(currentFrame),
 			static_cast<uint32_t>(attachments.size()), attachments.data(),
 			1, &rect);
 	}
@@ -315,7 +313,7 @@ void Graphics::clear(const std::vector<OptionalColorD> &colors, OptionalInt sten
 		rect.rect.extent.height = static_cast<uint32_t>(renderPassState.height);
 
 		vkCmdClearAttachments(
-			commandBuffers[currentFrame],
+			commandBuffers.at(currentFrame),
 			static_cast<uint32_t>(attachments.size()), attachments.data(),
 			1, &rect);
 	}
@@ -482,9 +480,9 @@ void Graphics::submitGpuCommands(SubmitMode submitMode, void *screenshotCallback
 
 	endRecordingGraphicsCommands();
 
-	if (imagesInFlight[imageIndex] != VK_NULL_HANDLE)
+	if (imagesInFlight.at(imageIndex) != VK_NULL_HANDLE)
 		vkWaitForFences(device, 1, &imagesInFlight.at(imageIndex), VK_TRUE, UINT64_MAX);
-	imagesInFlight[imageIndex] = inFlightFences[currentFrame];
+	imagesInFlight.at(imageIndex) = inFlightFences.at(currentFrame);
 
 	std::array<VkCommandBuffer, 1> submitCommandbuffers = { commandBuffers.at(currentFrame) };
 
@@ -514,8 +512,8 @@ void Graphics::submitGpuCommands(SubmitMode submitMode, void *screenshotCallback
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 
-		vkResetFences(device, 1, &inFlightFences[currentFrame]);
-		fence = inFlightFences[currentFrame];
+		vkResetFences(device, 1, &inFlightFences.at(currentFrame));
+		fence = inFlightFences.at(currentFrame);
 	}
 
 	if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS)
@@ -620,74 +618,60 @@ bool Graphics::setMode(void *context, int width, int height, int pixelwidth, int
 	readbackCallbacks.clear();
 	readbackCallbacks.resize(MAX_FRAMES_IN_FLIGHT);
 
-	bool createBaseObjects = physicalDevice == VK_NULL_HANDLE;
-
 	createSurface();
-
-	if (createBaseObjects)
-	{
-		pickPhysicalDevice();
-		createLogicalDevice();
-		createPipelineCache();
-		initVMA();
-		initCapabilities();
-	}
-
-	msaaSamples = getMsaaCount(requestedMsaa);
-
+	pickPhysicalDevice();
+	createLogicalDevice();
+	createPipelineCache();
+	initVMA();
+	initCapabilities();
+	createCommandPool();
+	createCommandBuffers();
 	createSwapChain();
 	createImageViews();
 	createScreenshotCallbackBuffers();
 	createColorResources();
 	createDepthResources();
 	transitionColorDepthLayouts = true;
+	createSyncObjects();
 
-	if (createBaseObjects)
-	{
-		createCommandPool();
-		createCommandBuffers();
-		createSyncObjects();
-	}
+	frameCounter = 0;
+	currentFrame = 0;
 
 	beginFrame();
 
-	if (createBaseObjects)
+	Volatile::loadAll();
+
+	if (batchedDrawState.vb[0] == nullptr)
 	{
-		if (batchedDrawState.vb[0] == nullptr)
-		{
-			// Initial sizes that should be good enough for most cases. It will
-			// resize to fit if needed, later.
-			batchedDrawState.vb[0] = new StreamBuffer(this, BUFFERUSAGE_VERTEX, 1024 * 1024 * 1);
-			batchedDrawState.vb[1] = new StreamBuffer(this, BUFFERUSAGE_VERTEX, 256 * 1024 * 1);
-			batchedDrawState.indexBuffer = new StreamBuffer(this, BUFFERUSAGE_INDEX, sizeof(uint16) * LOVE_UINT16_MAX);
-		}
-
-		// sometimes the VertexTexCoord is not set, so we manually adjust it to (0, 0)
-		if (defaultConstantTexCoord == nullptr)
-		{
-			float zeroTexCoord[2] = { 0.0f, 0.0f };
-			Buffer::DataDeclaration format("ConstantTexCoord", DATAFORMAT_FLOAT_VEC2);
-			Buffer::Settings settings(BUFFERUSAGEFLAG_VERTEX, BUFFERDATAUSAGE_STATIC);
-			defaultConstantTexCoord = newBuffer(settings, { format }, zeroTexCoord, sizeof(zeroTexCoord), 1);
-		}
-
-		// sometimes the VertexColor is not set, so we manually adjust it to white color
-		if (defaultConstantColor == nullptr)
-		{
-			uint8 whiteColor[] = { 255, 255, 255, 255 };
-			Buffer::DataDeclaration format("ConstantColor", DATAFORMAT_UNORM8_VEC4);
-			Buffer::Settings settings(BUFFERUSAGEFLAG_VERTEX, BUFFERDATAUSAGE_STATIC);
-			defaultConstantColor = newBuffer(settings, { format }, whiteColor, sizeof(whiteColor), 1);
-		}
-
-		createDefaultShaders();
-		Shader::current = Shader::standardShaders[Shader::StandardShader::STANDARD_DEFAULT];
-		createQuadIndexBuffer();
-		createFanIndexBuffer();
-
-		frameCounter = 0;
-		currentFrame = 0;
+		// Initial sizes that should be good enough for most cases. It will
+		// resize to fit if needed, later.
+		batchedDrawState.vb[0] = new StreamBuffer(this, BUFFERUSAGE_VERTEX, 1024 * 1024 * 1);
+		batchedDrawState.vb[1] = new StreamBuffer(this, BUFFERUSAGE_VERTEX, 256 * 1024 * 1);
+		batchedDrawState.indexBuffer = new StreamBuffer(this, BUFFERUSAGE_INDEX, sizeof(uint16) * LOVE_UINT16_MAX);
 	}
+
+	// sometimes the VertexTexCoord is not set, so we manually adjust it to (0, 0)
+	if (defaultConstantTexCoord.get() == nullptr)
+	{
+		float zeroTexCoord[2] = { 0.0f, 0.0f };
+		Buffer::DataDeclaration format("ConstantTexCoord", DATAFORMAT_FLOAT_VEC2);
+		Buffer::Settings settings(BUFFERUSAGEFLAG_VERTEX, BUFFERDATAUSAGE_STATIC);
+		defaultConstantTexCoord.set(newBuffer(settings, {format}, zeroTexCoord, sizeof(zeroTexCoord), 1), Acquire::NORETAIN);
+	}
+
+	// sometimes the VertexColor is not set, so we manually adjust it to white color
+	if (defaultConstantColor.get() == nullptr)
+	{
+		uint8 whiteColor[] = { 255, 255, 255, 255 };
+		Buffer::DataDeclaration format("ConstantColor", DATAFORMAT_UNORM8_VEC4);
+		Buffer::Settings settings(BUFFERUSAGEFLAG_VERTEX, BUFFERDATAUSAGE_STATIC);
+		defaultConstantColor.set(newBuffer(settings, { format }, whiteColor, sizeof(whiteColor), 1), Acquire::NORETAIN);
+	}
+
+	createDefaultShaders();
+	Shader::current = Shader::standardShaders[Shader::StandardShader::STANDARD_DEFAULT];
+	createQuadIndexBuffer();
+	createFanIndexBuffer();
 
 	restoreState(states.back());
 
@@ -755,11 +739,14 @@ void Graphics::getAPIStats(int &shaderswitches) const
 void Graphics::unSetMode()
 {
 	submitGpuCommands(SUBMIT_NOPRESENT);
+	vkDeviceWaitIdle(device);
+
+	Volatile::unloadAll();
 
 	created = false;
 
 	cleanupSwapChain();
-	vkDestroySurfaceKHR(instance, surface, nullptr);
+	cleanup();
 }
 
 void Graphics::setActive(bool enable)
@@ -1240,7 +1227,7 @@ void Graphics::initDynamicState()
 
 void Graphics::beginFrame()
 {
-	vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+	vkWaitForFences(device, 1, &inFlightFences.at(currentFrame), VK_TRUE, UINT64_MAX);
 
 	if (frameCounter >= USAGES_POLL_INTERVAL)
 	{
@@ -1250,7 +1237,7 @@ void Graphics::beginFrame()
 
 	while (true)
 	{
-		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores.at(currentFrame), VK_NULL_HANDLE, &imageIndex);
 		if (result == VK_ERROR_OUT_OF_DATE_KHR)
 		{
 			recreateSwapChain();
@@ -1276,7 +1263,7 @@ void Graphics::beginFrame()
 
 	Vulkan::cmdTransitionImageLayout(
 		commandBuffers.at(currentFrame),
-		swapChainImages[imageIndex],
+		swapChainImages.at(imageIndex),
 		VK_IMAGE_LAYOUT_UNDEFINED,
 		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
@@ -1458,6 +1445,7 @@ void Graphics::pickPhysicalDevice()
 	minUniformBufferOffsetAlignment = properties.limits.minUniformBufferOffsetAlignment;
 	deviceApiVersion = properties.apiVersion;
 
+	msaaSamples = getMsaaCount(requestedMsaa);
 	depthStencilFormat = findDepthFormat();
 }
 
@@ -3047,8 +3035,13 @@ void Graphics::cleanup()
 		vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
 		vkDestroyFence(device, inFlightFences[i], nullptr);
 	}
+	renderFinishedSemaphores.clear();
+	imageAvailableSemaphores.clear();
+	inFlightFences.clear();
+	imagesInFlight.clear();
 
 	vkFreeCommandBuffers(device, commandPool, MAX_FRAMES_IN_FLIGHT, commandBuffers.data());
+	commandBuffers.clear();
 
 	for (auto const &p : samplers)
 		vkDestroySampler(device, p.second, nullptr);
@@ -3067,8 +3060,16 @@ void Graphics::cleanup()
 	graphicsPipelines.clear();
 
 	vkDestroyCommandPool(device, commandPool, nullptr);
+	commandPool = VK_NULL_HANDLE;
+
 	vkDestroyPipelineCache(device, pipelineCache, nullptr);
+	pipelineCache = VK_NULL_HANDLE;
+
 	vkDestroyDevice(device, nullptr);
+	device = VK_NULL_HANDLE;
+
+	vkDestroySurfaceKHR(instance, surface, nullptr);
+	surface = VK_NULL_HANDLE;
 }
 
 void Graphics::cleanupSwapChain()
@@ -3078,21 +3079,27 @@ void Graphics::cleanupSwapChain()
 		vmaDestroyBuffer(vmaAllocator, readbackBuffer.buffer, readbackBuffer.allocation);
 		vmaDestroyImage(vmaAllocator, readbackBuffer.image, readbackBuffer.imageAllocation);
 	}
+	screenshotReadbackBuffers.clear();
+
 	if (colorImage)
 	{
 		vkDestroyImageView(device, colorImageView, nullptr);
 		vmaDestroyImage(vmaAllocator, colorImage, colorImageAllocation);
 	}
+	colorImage = VK_NULL_HANDLE;
+
 	if (depthImage)
 	{
 		vkDestroyImageView(device, depthImageView, nullptr);
 		vmaDestroyImage(vmaAllocator, depthImage, depthImageAllocation);
 	}
+	depthImage = VK_NULL_HANDLE;
+
 	for (const auto &swapChainImageView : swapChainImageViews)
 		vkDestroyImageView(device, swapChainImageView, nullptr);
 	swapChainImageViews.clear();
-	vkDestroySwapchainKHR(device, swapChain, nullptr);
 
+	vkDestroySwapchainKHR(device, swapChain, nullptr);
 	swapChain = VK_NULL_HANDLE;
 }
 
