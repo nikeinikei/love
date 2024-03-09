@@ -153,6 +153,7 @@ Graphics::~Graphics()
 {
 	defaultConstantTexCoord.set(nullptr);
 	defaultConstantColor.set(nullptr);
+	localUniformBuffer.set(nullptr);
 
 	Volatile::unloadAll();
 	cleanup();
@@ -650,6 +651,9 @@ bool Graphics::setMode(void *context, int width, int height, int pixelwidth, int
 		createSyncObjects();
 	}
 
+	if (localUniformBuffer.get() == nullptr)
+		localUniformBuffer = new StreamBuffer(this, BUFFERUSAGE_UNIFORM, 1024 * 1024 * 16);
+
 	beginFrame();
 
 	if (createBaseObjects)
@@ -664,7 +668,7 @@ bool Graphics::setMode(void *context, int width, int height, int pixelwidth, int
 		}
 
 		// sometimes the VertexTexCoord is not set, so we manually adjust it to (0, 0)
-		if (defaultConstantTexCoord == nullptr)
+		if (defaultConstantTexCoord.get() == nullptr)
 		{
 			float zeroTexCoord[2] = { 0.0f, 0.0f };
 			Buffer::DataDeclaration format("ConstantTexCoord", DATAFORMAT_FLOAT_VEC2);
@@ -673,7 +677,7 @@ bool Graphics::setMode(void *context, int width, int height, int pixelwidth, int
 		}
 
 		// sometimes the VertexColor is not set, so we manually adjust it to white color
-		if (defaultConstantColor == nullptr)
+		if (defaultConstantColor.get() == nullptr)
 		{
 			uint8 whiteColor[] = { 255, 255, 255, 255 };
 			Buffer::DataDeclaration format("ConstantColor", DATAFORMAT_UNORM8_VEC4);
@@ -1305,6 +1309,8 @@ void Graphics::beginFrame()
 	for (const auto shader : usedShadersInFrame)
 		shader->newFrame();
 	usedShadersInFrame.clear();
+
+	localUniformBuffer->nextFrame();
 }
 
 void Graphics::startRecordingGraphicsCommands()
@@ -1328,11 +1334,6 @@ void Graphics::endRecordingGraphicsCommands() {
 
 	if (vkEndCommandBuffer(commandBuffers.at(currentFrame)) != VK_SUCCESS)
 		throw love::Exception("failed to record command buffer");
-}
-
-const VkDeviceSize Graphics::getMinUniformBufferOffsetAlignment() const
-{
-	return minUniformBufferOffsetAlignment;
 }
 
 VkCommandBuffer Graphics::getCommandBufferForDataTransfer()
@@ -2867,6 +2868,22 @@ void Graphics::setVsync(int vsync)
 int Graphics::getVsync() const
 {
 	return vsync;
+}
+
+void Graphics::mapLocalUniformData(void *data, size_t size, VkDescriptorBufferInfo &bufferInfo)
+{
+	size_t alignedSize = static_cast<size_t>(std::ceil(static_cast<float>(size) / static_cast<float>(minUniformBufferOffsetAlignment))) * minUniformBufferOffsetAlignment;
+
+	if (localUniformBuffer->getUsableSize() < alignedSize)
+		localUniformBuffer.set(new StreamBuffer(this, BUFFERUSAGE_UNIFORM, localUniformBuffer->getSize() + 1024 * 1024), Acquire::NORETAIN);
+
+	auto mapInfo = localUniformBuffer->map(alignedSize);
+
+	memcpy(mapInfo.data, data, size);
+
+	bufferInfo.buffer = (VkBuffer)localUniformBuffer->getHandle();
+	bufferInfo.offset = localUniformBuffer->unmap(alignedSize);
+	bufferInfo.range = size;
 }
 
 void Graphics::createColorResources()
