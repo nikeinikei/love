@@ -229,6 +229,7 @@ private:
 
 	uint32_t currentFrame = 0;
 	uint32_t currentDescriptorPool = 0;
+	unsigned long lastDefragmentationCount = 0;
 };
 
 }

@@ -218,6 +218,7 @@ void Shader::unloadVolatile()
 			vkDestroyPipeline(device, kvp.second, nullptr);
 		for (const auto &kvp : graphicsPipelinesFull)
 			vkDestroyPipeline(device, kvp.second, nullptr);
+		return false;
 	});
 
 	shaderModules.clear();
@@ -303,6 +304,87 @@ void Shader::cmdPushDescriptorSets(VkCommandBuffer commandBuffer, VkPipelineBind
 			{
 				imageInfo.sampler = sampler;
 				resourceDescriptorsDirty = true;
+			}
+			VkImageView view = vkTexture != nullptr ? (VkImageView)vkTexture->getRenderTargetHandle() : VK_NULL_HANDLE;
+			if (view != imageInfo.imageView)
+			{
+				imageInfo.imageView = view;
+				resourceDescriptorsDirty = true;
+			}
+		}
+	}
+
+	if (lastDefragmentationCount != vgfx->getDefragmentationCount())
+	{
+		lastDefragmentationCount = vgfx->getDefragmentationCount();
+
+		for (const auto& u : reflection.storageTextures)
+		{
+			const auto& info = u.second;
+			if (!info.active)
+				continue;
+
+			for (int i = 0; i < info.count; i++)
+			{
+				auto vkTexture = dynamic_cast<Texture*>(activeTextures[info.resourceIndex + i]);
+
+				if (vkTexture == nullptr)
+					throw love::Exception("uniform variable %s is not set", info.name.c_str());
+
+				VkDescriptorImageInfo& imageInfo = descriptorImages[info.bindingStartIndex + i];
+
+				VkImageView view = vkTexture != nullptr ? (VkImageView)vkTexture->getRenderTargetHandle() : VK_NULL_HANDLE;
+				if (view != imageInfo.imageView)
+				{
+					imageInfo.imageView = view;
+					resourceDescriptorsDirty = true;
+				}
+			}
+		}
+
+		for (const auto& u : reflection.texelBuffers)
+		{
+			const auto& info = u.second;
+			if (!info.active)
+				continue;
+
+			for (int i = 0; i < info.count; i++)
+			{
+				auto vkBuffer = dynamic_cast<Buffer*>(activeBuffers[info.resourceIndex + i]);
+
+				if (vkBuffer == nullptr)
+					throw love::Exception("uniform variable %s is not set", info.name.c_str());
+
+				VkDescriptorBufferInfo bufferInfo = descriptorBuffers[info.bindingStartIndex + i];
+				VkBufferView bufferView = (VkBufferView)vkBuffer->getTexelBufferHandle();
+				if (descriptorBufferViews[info.bindingStartIndex + i] != bufferView)
+				{
+					descriptorBufferViews[info.bindingStartIndex + i] = bufferView;
+					resourceDescriptorsDirty = true;
+				}
+			}
+		}
+
+		for (const auto& u : reflection.storageBuffers)
+		{
+			const auto& info = u.second;
+			if (!info.active)
+				continue;
+
+			for (int i = 0; i < info.count; i++)
+			{
+				auto vkBuffer = dynamic_cast<Buffer*>(activeBuffers[info.resourceIndex + i]);
+
+				if (vkBuffer == nullptr)
+					throw love::Exception("uniform variable %s is not set", info.name.c_str());
+
+				VkDescriptorBufferInfo bufferInfo = descriptorBuffers[info.bindingStartIndex + i];
+				VkBuffer buffer = (VkBuffer)vkBuffer->getHandle();
+				if (bufferInfo.buffer != buffer)
+				{
+					bufferInfo.buffer = buffer;
+					resourceDescriptorsDirty = true;
+				}
 			}
 		}
 	}

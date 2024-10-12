@@ -463,7 +463,7 @@ void Graphics::submitGpuCommands(SubmitMode submitMode, void *screenshotCallback
 	if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence) != VK_SUCCESS)
 		throw love::Exception("failed to submit draw command buffer");
 	
-	if (submitMode == SUBMIT_NOPRESENT || submitMode == SUBMIT_RESTART || screenshotBuffer != VK_NULL_HANDLE)
+	if (submitMode == SUBMIT_NOPRESENT || submitMode == SUBMIT_RESTART || screenshotBuffer != VK_NULL_HANDLE || defragmentationRequested)
 	{
 		vkQueueWaitIdle(graphicsQueue);
 
@@ -531,6 +531,9 @@ void Graphics::submitGpuCommands(SubmitMode submitMode, void *screenshotCallback
 			vmaDestroyBuffer(vmaAllocator, screenshotBuffer, screenshotAllocation);
 			pendingScreenshotCallbacks.clear();
 		}
+
+		if (defragmentationRequested)
+			runDefragmentation();
 
 		if (submitMode == SUBMIT_RESTART)
 			startRecordingGraphicsCommands();
@@ -1372,8 +1375,11 @@ void Graphics::beginFrame()
 		readbackCallback();
 	readbackCallbacks.at(currentFrame).clear();
 
-	for (auto &cleanUpFn : cleanUpFunctions.at(currentFrame))
-		cleanUpFn();
+	for (auto& cleanUpFn : cleanUpFunctions.at(currentFrame))
+	{
+		if (cleanUpFn())
+			defragmentationRequested = true;
+	}
 	cleanUpFunctions.at(currentFrame).clear();
 
 	startRecordingGraphicsCommands();
@@ -1471,7 +1477,7 @@ VkCommandBuffer Graphics::getCommandBufferForDataTransfer()
 	return commandBuffers.at(currentFrame);
 }
 
-void Graphics::queueCleanUp(std::function<void()> cleanUp)
+void Graphics::queueCleanUp(std::function<bool()> cleanUp)
 {
 	cleanUpFunctions.at(currentFrame).push_back(cleanUp);
 }
@@ -2759,6 +2765,107 @@ void Graphics::requestSwapchainRecreation()
 	}
 }
 
+void Graphics::runDefragmentation()
+{
+	VmaDefragmentationInfo defragInfo{};
+	defragInfo.flags = VMA_DEFRAGMENTATION_FLAG_ALGORITHM_FAST_BIT;
+
+	VmaDefragmentationContext defragCtx;
+	if (vmaBeginDefragmentation(vmaAllocator, &defragInfo, &defragCtx) != VK_SUCCESS)
+		throw love::Exception("could not create defragmentation context");
+
+	VkResult res;
+	for (;;)
+	{
+		VmaDefragmentationPassMoveInfo pass;
+		res = vmaBeginDefragmentationPass(vmaAllocator, defragCtx, &pass);
+		if (res == VK_SUCCESS)
+			break;
+		else if (res != VK_INCOMPLETE)
+			throw love::Exception("could not begin defragmentation pass");
+
+		std::cout << "defragmentation pass, #moves = " << pass.moveCount << std::endl;
+
+		VkCommandBufferBeginInfo beginInfo{};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		if (vkBeginCommandBuffer(defragmentationCommandBuffer, &beginInfo) != VK_SUCCESS)
+			throw love::Exception("could not start defragmentation command buffer");
+
+		std::vector<VkBuffer> buffers;
+		std::vector<VkImage> images;
+
+		std::vector<std::function<void()>> postMoves;
+
+		for (uint32_t i = 0; i < pass.moveCount; i++)
+		{
+			VmaAllocationInfo srcAllocInfo;
+			vmaGetAllocationInfo(vmaAllocator, pass.pMoves[i].srcAllocation, &srcAllocInfo);
+			if (srcAllocInfo.pUserData == nullptr)
+				pass.pMoves[i].operation = VMA_DEFRAGMENTATION_MOVE_OPERATION_IGNORE;
+			else
+			{
+				GraphicsResource *resource = (GraphicsResource*)srcAllocInfo.pUserData;
+				switch (resource->type) {
+				case GRAPHICSRESOURCETYPE_STREAMBUFFER: {
+					auto streamBuffer = static_cast<StreamBuffer*>(resource->object);
+					buffers.push_back(streamBuffer->performDefragmentationMove(defragmentationCommandBuffer, vmaAllocator, pass.pMoves[i].dstTmpAllocation));
+					break;
+				}
+				case GRAPHICSRESOURCETYPE_TEXTURE: {
+					auto texture = static_cast<Texture*>(resource->object);
+					images.push_back(texture->performDefragmentationMove(defragmentationCommandBuffer, vmaAllocator, pass.pMoves[i].dstTmpAllocation));
+					break;
+				}
+				case GRAPHICSRESOURCETYPE_BUFFER: {
+					auto buffer = static_cast<Buffer*>(resource->object);
+					buffers.push_back(buffer->performDefragmentationMove(defragmentationCommandBuffer, vmaAllocator, pass.pMoves[i].dstTmpAllocation));
+					break;
+				}
+				default:
+					throw love::Exception("unknown graphics resource type");
+				}
+			}
+		}
+
+		if (vkEndCommandBuffer(defragmentationCommandBuffer) != VK_SUCCESS)
+			throw love::Exception("could not end defragmentation command buffer");
+
+		VkSubmitInfo submitInfo{};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &defragmentationCommandBuffer;
+
+		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, defragmentationFence) != VK_SUCCESS)
+			throw love::Exception("could not submit defragmentation queue");
+
+		if (vkWaitForFences(device, 1, &defragmentationFence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+			throw love::Exception("could not wait for defragmentation fence");
+
+		if (vkResetFences(device, 1, &defragmentationFence) != VK_SUCCESS)
+			throw love::Exception("could not reset defragmentation fence");
+
+		for (const auto& postMove : postMoves)
+			postMove();
+
+		for (VkBuffer buffer : buffers)
+			vkDestroyBuffer(device, buffer, nullptr);
+		for (VkImage image : images)
+			vkDestroyImage(device, image, nullptr);
+
+		res = vmaEndDefragmentationPass(vmaAllocator, defragCtx, &pass);
+		if (res == VK_SUCCESS)
+			break;
+		else if (res != VK_INCOMPLETE)
+			throw love::Exception("could not end defragmentation pass");
+	}
+
+	vmaEndDefragmentation(vmaAllocator, defragCtx, nullptr);
+
+	defragmentationCount++;
+}
+
 VkSampler Graphics::getCachedSampler(const SamplerState &samplerState)
 {
 	auto samplerkey = samplerState.toKey();
@@ -3002,6 +3109,11 @@ void Graphics::mapLocalUniformData(void *data, size_t size, VkDescriptorBufferIn
 	localUniformBuffer->markUsed(alignedSize);
 }
 
+void Graphics::requestDefragmentation()
+{
+	defragmentationRequested = true;
+}
+
 void Graphics::createColorResources()
 {
 	if (msaaSamples & VK_SAMPLE_COUNT_1_BIT)
@@ -3157,6 +3269,15 @@ void Graphics::createCommandBuffers()
 
 	if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS)
 		throw love::Exception("failed to allocate command buffers");
+
+	VkCommandBufferAllocateInfo defragmentationAllocInfo{};
+	defragmentationAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	defragmentationAllocInfo.commandPool = commandPool;
+	defragmentationAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	defragmentationAllocInfo.commandBufferCount = 1;
+
+	if (vkAllocateCommandBuffers(device, &defragmentationAllocInfo, &defragmentationCommandBuffer) != VK_SUCCESS)
+		throw love::Exception("failed to allocate command buffers");
 }
 
 void Graphics::createSyncObjects()
@@ -3178,6 +3299,12 @@ void Graphics::createSyncObjects()
 			vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores.at(i)) != VK_SUCCESS ||
 			vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences.at(i)) != VK_SUCCESS)
 			throw love::Exception("failed to create synchronization objects for a frame!");
+
+	VkFenceCreateInfo defragmentationFenceInfo{};
+	defragmentationFenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+	if (vkCreateFence(device, &defragmentationFenceInfo, nullptr, &defragmentationFence) != VK_SUCCESS)
+		throw love::Exception("could not create defragmentation fence");
 }
 
 void Graphics::cleanup()
@@ -3194,8 +3321,10 @@ void Graphics::cleanup()
 		vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
 		vkDestroyFence(device, inFlightFences[i], nullptr);
 	}
+	vkDestroyFence(device, defragmentationFence, nullptr);
 
 	vkFreeCommandBuffers(device, commandPool, MAX_FRAMES_IN_FLIGHT, commandBuffers.data());
+	vkFreeCommandBuffers(device, commandPool, 1, &defragmentationCommandBuffer);
 
 	for (auto const &p : samplers)
 		vkDestroySampler(device, p.second, nullptr);

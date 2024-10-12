@@ -24,7 +24,9 @@
 #include "graphics/Volatile.h"
 
 #include "VulkanWrapper.h"
+#include "Vulkan.h"
 
+#include <functional>
 
 namespace love
 {
@@ -40,7 +42,6 @@ class Texture final
 	, public Volatile
 {
 public:
-
 	Texture(love::graphics::Graphics *gfx, const Settings &settings, const Slices *data);
 	Texture(love::graphics::Graphics *gfx, love::graphics::Texture *base, const Texture::ViewSettings &viewsettings);
 	virtual ~Texture();
@@ -70,7 +71,10 @@ public:
 
 	static VkClearColorValue getClearColor(love::graphics::Texture *texture, const ColorD &color);
 
+	VkImage performDefragmentationMove(VkCommandBuffer commandBuffer, VmaAllocator allocator, VmaAllocation dstAllocation);
+
 private:
+	void createRendertargetViews();
 	void createTextureImageView();
 	void clear();
 
@@ -78,6 +82,8 @@ private:
 	VkDevice device = VK_NULL_HANDLE;
 	VkImageAspectFlags imageAspect;
 	VmaAllocator allocator = VK_NULL_HANDLE;
+	VkImageCreateInfo imageInfo;
+	VkImageFormatListCreateInfo viewFormatsInfo;
 	VkImage textureImage = VK_NULL_HANDLE;
 	VkImageLayout imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	VmaAllocation textureImageAllocation = VK_NULL_HANDLE;
@@ -87,6 +93,7 @@ private:
 	Slices slices;
 	int layerCount = 0;
 	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+	GraphicsResource graphicsResource;
 };
 
 } // vulkan

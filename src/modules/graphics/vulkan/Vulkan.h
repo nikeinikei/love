@@ -49,6 +49,21 @@ struct TextureFormat
 	VkComponentSwizzle swizzleA = VK_COMPONENT_SWIZZLE_IDENTITY;
 };
 
+enum GraphicsResourceType {
+	GRAPHICSRESOURCETYPE_BUFFER,
+	GRAPHICSRESOURCETYPE_STREAMBUFFER,
+	GRAPHICSRESOURCETYPE_TEXTURE,
+	GRAPHICSRESOURCETYPE_MAX_ENUM,
+};
+
+struct GraphicsResource {
+	GraphicsResourceType type;
+	void *object;
+
+	GraphicsResource(GraphicsResourceType type, void* obj)
+		: type(type), object(obj) {}
+};
+
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
 class Vulkan

@@ -26,6 +26,7 @@
 #include "graphics/Volatile.h"
 
 #include "VulkanWrapper.h"
+#include "Vulkan.h"
 
 
 namespace love
@@ -60,12 +61,15 @@ public:
 	VkAccessFlags getBarrierDstAccessFlags() const { return barrierDstAccessFlags; }
 	VkPipelineStageFlags getBarrierDstStageFlags() const { return barrierDstStageFlags; }
 
-private:
+	VkBuffer performDefragmentationMove(VkCommandBuffer commandBuffer, VmaAllocator allocator, VmaAllocation dstAllocation);
 
+private:
+	void createBufferView();
 	void clearInternal(size_t offset, size_t size) override;
 
 	bool zeroInitialize;
 	const void *initialData;
+	VkBufferCreateInfo bufferInfo;
 	VkBuffer buffer = VK_NULL_HANDLE;
 	VkBuffer stagingBuffer = VK_NULL_HANDLE;
 	VkBufferView bufferView = VK_NULL_HANDLE;
@@ -78,6 +82,7 @@ private:
 	BufferUsageFlags usageFlags;
 	Range mappedRange;
 	bool coherent;
+	GraphicsResource graphicsResource;
 
 	VkAccessFlags barrierDstAccessFlags = 0;
 	VkPipelineStageFlags barrierDstStageFlags = 0;

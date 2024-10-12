@@ -61,6 +61,7 @@ Buffer::Buffer(love::graphics::Graphics *gfx, const Settings &settings, const st
 	, initialData(data)
 	, vgfx(dynamic_cast<Graphics*>(gfx))
 	, usageFlags(settings.usageFlags)
+	, graphicsResource(GRAPHICSRESOURCETYPE_BUFFER, this)
 {
 	// All buffers can be copied to and from.
 	barrierDstAccessFlags = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -99,7 +100,7 @@ bool Buffer::loadVolatile()
 {
 	allocator = vgfx->getVmaAllocator();
 
-	VkBufferCreateInfo bufferInfo{};
+	memset(&bufferInfo, 0, sizeof(bufferInfo));
 	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	bufferInfo.size = getSize();
 	bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | getVulkanUsageFlags(usageFlags);
@@ -113,6 +114,8 @@ bool Buffer::loadVolatile()
 	if (result != VK_SUCCESS)
 		throw love::Exception("failed to create buffer");
 
+	vmaSetAllocationUserData(allocator, allocation, &graphicsResource);
+
 	if (zeroInitialize)
 	{
 		auto cmd = vgfx->getCommandBufferForDataTransfer();
@@ -124,16 +127,7 @@ bool Buffer::loadVolatile()
 		fill(0, size, initialData);
 
 	if (usageFlags & BUFFERUSAGEFLAG_TEXEL)
-	{
-		VkBufferViewCreateInfo bufferViewInfo{};
-		bufferViewInfo.buffer = buffer;
-		bufferViewInfo.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
-		bufferViewInfo.format = Vulkan::getVulkanVertexFormat(getDataMember(0).decl.format);
-		bufferViewInfo.range = VK_WHOLE_SIZE;
-
-		if (vkCreateBufferView(vgfx->getDevice(), &bufferViewInfo, nullptr, &bufferView) != VK_SUCCESS)
-			throw love::Exception("failed to create texel buffer view");
-	}
+		createBufferView();
 
 	VkMemoryPropertyFlags memoryProperties;
 	vmaGetAllocationMemoryProperties(allocator, allocation, &memoryProperties);
@@ -154,6 +148,8 @@ bool Buffer::loadVolatile()
 		vkSetDebugUtilsObjectNameEXT(device, &nameInfo);
 	}
 
+	vgfx->requestDefragmentation();
+
 	return true;
 }
 
@@ -161,6 +157,8 @@ void Buffer::unloadVolatile()
 {
 	if (buffer == VK_NULL_HANDLE)
 		return;
+
+	vmaSetAllocationUserData(allocator, allocation, nullptr);
 
 	auto device = vgfx->getDevice();
 
@@ -170,6 +168,7 @@ void Buffer::unloadVolatile()
 		vmaDestroyBuffer(allocator, buffer, allocation);
 		if (bufferView)
 			vkDestroyBufferView(device, bufferView, nullptr);
+		return true;
 	});
 
 	buffer = VK_NULL_HANDLE;
@@ -276,6 +275,7 @@ bool Buffer::fill(size_t offset, size_t size, const void *data)
 
 	vgfx->queueCleanUp([allocator = allocator, fillBuffer = fillBuffer, fillAllocation = fillAllocation]() {
 		vmaDestroyBuffer(allocator, fillBuffer, fillAllocation);
+		return true;
 	});
 
 	return true;
@@ -302,6 +302,7 @@ void Buffer::unmap(size_t usedoffset, size_t usedsize)
 
 		vgfx->queueCleanUp([allocator = allocator, stagingBuffer = stagingBuffer, stagingAllocation = stagingAllocation]() {
 			vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+			return true;
 		});
 	}
 }
@@ -335,6 +336,43 @@ void Buffer::postGPUWriteBarrier(VkCommandBuffer cmd)
 	barrier.dstAccessMask = barrierDstAccessFlags;
 
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, barrierDstStageFlags, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+}
+
+void Buffer::createBufferView()
+{
+	VkBufferViewCreateInfo bufferViewInfo{};
+	bufferViewInfo.buffer = buffer;
+	bufferViewInfo.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+	bufferViewInfo.format = Vulkan::getVulkanVertexFormat(getDataMember(0).decl.format);
+	bufferViewInfo.range = VK_WHOLE_SIZE;
+
+	if (vkCreateBufferView(vgfx->getDevice(), &bufferViewInfo, nullptr, &bufferView) != VK_SUCCESS)
+		throw love::Exception("failed to create texel buffer view");
+}
+
+VkBuffer Buffer::performDefragmentationMove(VkCommandBuffer commandBuffer, VmaAllocator allocator, VmaAllocation dstAllocation)
+{
+	VkDevice device = vgfx->getDevice();
+	VkBuffer oldBuffer = buffer;
+
+	if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS)
+		throw love::Exception("could not recreate stream buffer");
+
+	if (vmaBindBufferMemory(allocator, dstAllocation, buffer))
+		throw love::Exception("could not bind the buffer memory");
+
+	VkBufferCopy region{};
+	region.size = bufferInfo.size;
+
+	vkCmdCopyBuffer(commandBuffer, oldBuffer, buffer, 1, &region);
+
+	if (usageFlags & BUFFERUSAGEFLAG_TEXEL)
+	{
+		vkDestroyBufferView(device, bufferView, nullptr);
+		createBufferView();
+	}
+
+	return oldBuffer;
 }
 
 } // vulkan

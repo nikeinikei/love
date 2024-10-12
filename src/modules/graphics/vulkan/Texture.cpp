@@ -37,6 +37,7 @@ Texture::Texture(love::graphics::Graphics *gfx, const Settings &settings, const 
 	, vgfx(dynamic_cast<Graphics*>(gfx))
 	, slices(settings.type)
 	, imageAspect(0)
+	, graphicsResource(GRAPHICSRESOURCETYPE_TEXTURE, this)
 {
 	if (data)
 		slices = *data;
@@ -53,6 +54,7 @@ Texture::Texture(love::graphics::Graphics *gfx, love::graphics::Texture *base, c
 	, vgfx(dynamic_cast<Graphics*>(gfx))
 	, slices(viewsettings.type.get(base->getTextureType()))
 	, imageAspect(0)
+	, graphicsResource(GRAPHICSRESOURCETYPE_TEXTURE, this)
 {
 	loadVolatile();
 }
@@ -118,7 +120,7 @@ bool Texture::loadVolatile()
 
 		msaaSamples = vgfx->getMsaaCount(requestedMSAA);
 
-		VkImageCreateInfo imageInfo{};
+		memset(&imageInfo, 0, sizeof(imageInfo));
 		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 		imageInfo.flags = createFlags;
 		imageInfo.imageType = Vulkan::getImageType(getTextureType());
@@ -134,7 +136,7 @@ bool Texture::loadVolatile()
 		imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		imageInfo.samples = msaaSamples;
 
-		VkImageFormatListCreateInfo viewFormatsInfo{};
+		memset(&viewFormatsInfo, 0, sizeof(viewFormatsInfo));
 		viewFormatsInfo.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO;
 
 		if (!vkviewformats.empty() && vgfx->getDeviceApiVersion() >= VK_API_VERSION_1_2)
@@ -155,6 +157,8 @@ bool Texture::loadVolatile()
 
 		if (vmaCreateImage(allocator, &imageInfo, &imageAllocationCreateInfo, &textureImage, &textureImageAllocation, nullptr) != VK_SUCCESS)
 			throw love::Exception("failed to create image");
+
+		vmaSetAllocationUserData(allocator, textureImageAllocation, &graphicsResource);
 
 		auto commandBuffer = vgfx->getCommandBufferForDataTransfer();
 
@@ -213,36 +217,7 @@ bool Texture::loadVolatile()
 		generateMipmaps();
 
 	if (renderTarget)
-	{
-		renderTargetImageViews.resize(getMipmapCount());
-		for (int mip = 0; mip < getMipmapCount(); mip++)
-		{
-			renderTargetImageViews.at(mip).resize(layerCount);
-
-			for (int slice = 0; slice < layerCount; slice++)
-			{
-				VkImageViewCreateInfo viewInfo{};
-				viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-				viewInfo.image = textureImage;
-				viewInfo.viewType = Vulkan::getImageViewType(getTextureType());
-				if (viewInfo.viewType == VK_IMAGE_VIEW_TYPE_CUBE)
-					viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-				viewInfo.format = vulkanFormat.internalFormat;
-				viewInfo.subresourceRange.aspectMask = imageAspect;
-				viewInfo.subresourceRange.baseMipLevel = mip + rootView.startMipmap;
-				viewInfo.subresourceRange.levelCount = 1;
-				viewInfo.subresourceRange.baseArrayLayer = slice + rootView.startLayer;
-				viewInfo.subresourceRange.layerCount = 1;
-				viewInfo.components.r = vulkanFormat.swizzleR;
-				viewInfo.components.g = vulkanFormat.swizzleG;
-				viewInfo.components.b = vulkanFormat.swizzleB;
-				viewInfo.components.a = vulkanFormat.swizzleA;
-
-				if (vkCreateImageView(device, &viewInfo, nullptr, &renderTargetImageViews.at(mip).at(slice)) != VK_SUCCESS)
-					throw love::Exception("could not create render target image view");
-			}
-		}
-	}
+		createRendertargetViews();
 
 	if (!debugName.empty())
 	{
@@ -275,6 +250,8 @@ void Texture::unloadVolatile()
 	if (textureImage == VK_NULL_HANDLE)
 		return;
 
+	vmaSetAllocationUserData(allocator, textureImageAllocation, nullptr);
+
 	vgfx->queueCleanUp([
 		device = device, 
 		textureImageView = textureImageView, 
@@ -288,6 +265,7 @@ void Texture::unloadVolatile()
 		for (const auto &views : textureImageViews)
 			for (const auto &view : views)
 				vkDestroyImageView(device, view, nullptr);
+		return true;
 	});
 
 	textureImage = VK_NULL_HANDLE;
@@ -340,6 +318,41 @@ void Texture::setSamplerState(const SamplerState &s)
 VkImageLayout Texture::getImageLayout() const
 {
 	return imageLayout;
+}
+
+
+void Texture::createRendertargetViews()
+{
+	auto vulkanFormat = Vulkan::getTextureFormat(getPixelFormat());
+
+	renderTargetImageViews.resize(getMipmapCount());
+	for (int mip = 0; mip < getMipmapCount(); mip++)
+	{
+		renderTargetImageViews.at(mip).resize(layerCount);
+
+		for (int slice = 0; slice < layerCount; slice++)
+		{
+			VkImageViewCreateInfo viewInfo{};
+			viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			viewInfo.image = textureImage;
+			viewInfo.viewType = Vulkan::getImageViewType(getTextureType());
+			if (viewInfo.viewType == VK_IMAGE_VIEW_TYPE_CUBE)
+				viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			viewInfo.format = vulkanFormat.internalFormat;
+			viewInfo.subresourceRange.aspectMask = imageAspect;
+			viewInfo.subresourceRange.baseMipLevel = mip + rootView.startMipmap;
+			viewInfo.subresourceRange.levelCount = 1;
+			viewInfo.subresourceRange.baseArrayLayer = slice + rootView.startLayer;
+			viewInfo.subresourceRange.layerCount = 1;
+			viewInfo.components.r = vulkanFormat.swizzleR;
+			viewInfo.components.g = vulkanFormat.swizzleG;
+			viewInfo.components.b = vulkanFormat.swizzleB;
+			viewInfo.components.a = vulkanFormat.swizzleA;
+
+			if (vkCreateImageView(device, &viewInfo, nullptr, &renderTargetImageViews.at(mip).at(slice)) != VK_SUCCESS)
+				throw love::Exception("could not create render target image view");
+		}
+	}
 }
 
 void Texture::createTextureImageView()
@@ -618,6 +631,7 @@ void Texture::uploadByteData(const void *data, size_t size, int level, int slice
 
 	vgfx->queueCleanUp([allocator = allocator, stagingBuffer, vmaAllocation]() {
 		vmaDestroyBuffer(allocator, stagingBuffer, vmaAllocation);
+		return true;
 	});
 }
 
@@ -687,6 +701,56 @@ void Texture::copyToBuffer(graphics::Buffer *dest, int slice, int mipmap, const 
 
 	// TODO: This could be combined with the cmdTransitionImageLayout barrier.
 	((Buffer *)dest)->postGPUWriteBarrier(commandBuffer);
+}
+
+VkImage Texture::performDefragmentationMove(VkCommandBuffer commandBuffer, VmaAllocator allocator, VmaAllocation dstAllocation)
+{
+	VkImage oldImage = textureImage;
+	if (vkCreateImage(device, &imageInfo, nullptr, &textureImage) != VK_SUCCESS)
+		throw love::Exception("could not re-create texture");
+
+	if (vmaBindImageMemory(allocator, dstAllocation, textureImage) != VK_SUCCESS)
+		throw love::Exception("could not rebind texture memory");
+
+	Vulkan::cmdTransitionImageLayout(commandBuffer, oldImage, getPixelFormat(), isRenderTarget(), imageLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+	Vulkan::cmdTransitionImageLayout(commandBuffer, textureImage, getPixelFormat(), isRenderTarget(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+	for (uint32_t mipLevel = rootView.startMipmap; mipLevel < mipmapCount; mipLevel++)
+	{
+		VkImageSubresourceLayers subResource{};
+		subResource.aspectMask = imageAspect;
+		subResource.baseArrayLayer = rootView.startLayer;
+		subResource.layerCount = layerCount - rootView.startLayer;
+		subResource.mipLevel = mipLevel;
+
+		VkImageCopy region{};
+		region.extent.width = pixelWidth;
+		region.extent.height = pixelHeight;
+		region.extent.depth = depth;
+		region.srcSubresource = subResource;
+		region.dstSubresource = subResource;
+
+		vkCmdCopyImage(commandBuffer, oldImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, textureImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+	}
+
+	Vulkan::cmdTransitionImageLayout(commandBuffer, textureImage, getPixelFormat(), isRenderTarget(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, imageLayout);
+
+	Vulkan::cmdTransitionImageLayout(commandBuffer, oldImage, getPixelFormat(), isRenderTarget(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageLayout);
+
+	vkDestroyImageView(device, textureImageView, nullptr);
+	createTextureImageView();
+	if (isRenderTarget())
+	{
+		for (const auto& views : renderTargetImageViews)
+		{
+			for (const auto view : views)
+				vkDestroyImageView(device, view, nullptr);
+		}
+		createRendertargetViews();
+	}
+
+	return oldImage;
 }
 
 } // vulkan

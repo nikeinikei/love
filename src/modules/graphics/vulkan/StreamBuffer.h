@@ -25,6 +25,7 @@
 #include "graphics/Graphics.h"
 
 #include "VulkanWrapper.h"
+#include "Vulkan.h"
 
 namespace love
 {
@@ -56,14 +57,18 @@ public:
 
 	ptrdiff_t getHandle() const override;
 
+	VkBuffer performDefragmentationMove(VkCommandBuffer commandBuffer, VmaAllocator allocator, VmaAllocation dstAllocation);
+
 private:
 	Graphics *vgfx = nullptr;
+	VkBufferCreateInfo bufferInfo;
 	VmaAllocator allocator;
 	VmaAllocation allocation;
 	VmaAllocationInfo allocInfo;
 	VkBuffer buffer = VK_NULL_HANDLE;
 	int frameIndex = 0;
 	bool coherent;
+	GraphicsResource graphicsResource;
 
 };
 

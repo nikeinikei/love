@@ -1,4 +1,5 @@
 /**
+* 
  * Copyright (c) 2006-2024 LOVE Development Team
  *
  * This software is provided 'as-is', without any express or implied
@@ -44,6 +45,7 @@ static VkBufferUsageFlags getUsageFlags(BufferUsage mode)
 StreamBuffer::StreamBuffer(graphics::Graphics *gfx, BufferUsage mode, size_t size)
 	: love::graphics::StreamBuffer(mode, size)
 	, vgfx(dynamic_cast<Graphics*>(gfx))
+	, graphicsResource(GRAPHICSRESOURCETYPE_STREAMBUFFER, this)
 {
 	loadVolatile();
 }
@@ -52,9 +54,9 @@ bool StreamBuffer::loadVolatile()
 {
 	allocator = vgfx->getVmaAllocator();
 
-	VkBufferCreateInfo bufferInfo{};
+	memset(&bufferInfo, 0, sizeof(bufferInfo));
 	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	bufferInfo.size = getSize() * MAX_FRAMES_IN_FLIGHT; // TODO: Is this sufficient or should it be +1?
+	bufferInfo.size = getSize() * MAX_FRAMES_IN_FLIGHT;	// TODO: Is this sufficient or should it be +1? 
 	bufferInfo.usage = getUsageFlags(mode);
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -64,6 +66,8 @@ bool StreamBuffer::loadVolatile()
 
 	if (vmaCreateBuffer(allocator, &bufferInfo, &allocCreateInfo, &buffer, &allocation, &allocInfo) != VK_SUCCESS)
 		throw love::Exception("Cannot create stream buffer: out of graphics memory.");
+
+	vmaSetAllocationUserData(allocator, allocation, &graphicsResource);
 
 	VkMemoryPropertyFlags properties;
 	vmaGetAllocationMemoryProperties(allocator, allocation, &properties);
@@ -80,8 +84,11 @@ void StreamBuffer::unloadVolatile()
 	if (buffer == VK_NULL_HANDLE)
 		return;
 
+	vmaSetAllocationUserData(allocator, allocation, nullptr);
+
 	vgfx->queueCleanUp([allocator=allocator, buffer=buffer, allocation=allocation](){
 		vmaDestroyBuffer(allocator, buffer, allocation);
+		return true;
 	});
 	buffer = VK_NULL_HANDLE;
 }
@@ -130,6 +137,22 @@ void StreamBuffer::nextFrame()
 {
 	frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 	frameGPUReadOffset = 0;
+}
+
+VkBuffer StreamBuffer::performDefragmentationMove(VkCommandBuffer commandBuffer, VmaAllocator allocator, VmaAllocation dstAllocation)
+{
+	VkDevice device = vgfx->getDevice();
+	VkBuffer oldBuffer = buffer;
+
+	if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS)
+		throw love::Exception("could not recreate stream buffer");
+
+	if (vmaBindBufferMemory(allocator, dstAllocation, buffer))
+		throw love::Exception("could not bind the buffer memory");
+
+	// no copy here, stream buffers don't need to preserve the data.
+
+	return oldBuffer;
 }
 
 } // vulkan

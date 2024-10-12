@@ -266,7 +266,7 @@ public:
 	VkDevice getDevice() const;
 	VmaAllocator getVmaAllocator() const;
 	VkCommandBuffer getCommandBufferForDataTransfer();
-	void queueCleanUp(std::function<void()> cleanUp);
+	void queueCleanUp(std::function<bool()> cleanUp);
 	void addReadbackCallback(std::function<void()> callback);
 	void submitGpuCommands(SubmitMode, void *screenshotCallbackData = nullptr);
 	VkSampler getCachedSampler(const SamplerState &sampler);
@@ -277,9 +277,11 @@ public:
 	void setVsync(int vsync);
 	int getVsync() const;
 	void mapLocalUniformData(void *data, size_t size, VkDescriptorBufferInfo &bufferInfo);
+	void requestDefragmentation();
 
 	VkPipeline createGraphicsPipeline(Shader *shader, const GraphicsPipelineConfigurationCore &configuration, const GraphicsPipelineConfigurationNoDynamicState *noDynamicStateConfiguration);
 
+	unsigned long getDefragmentationCount() const { return defragmentationCount; }
 	uint32 getDeviceApiVersion() const { return deviceApiVersion; }
 
 protected:
@@ -345,6 +347,7 @@ private:
 	VkSampler createSampler(const SamplerState &sampler);
 	void cleanupUnusedObjects();
 	void requestSwapchainRecreation();
+	void runDefragmentation();
 
 	VkInstance instance = VK_NULL_HANDLE;
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -383,12 +386,16 @@ private:
 	std::vector<VkSemaphore> renderFinishedSemaphores;
 	std::vector<VkFence> inFlightFences;
 	std::vector<VkFence> imagesInFlight;
+	VkCommandBuffer defragmentationCommandBuffer;
+	VkFence defragmentationFence;
 	int vsync = 1;
 	VkDeviceSize minUniformBufferOffsetAlignment = 0;
 	bool imageRequested = false;
 	uint32_t frameCounter = 0;
 	size_t currentFrame = 0;
 	uint32_t imageIndex = 0;
+	unsigned long defragmentationCount = 0;
+	bool defragmentationRequested = false;
 	bool swapChainRecreationRequested = false;
 	bool transitionColorDepthLayouts = false;
 	VmaAllocator vmaAllocator = VK_NULL_HANDLE;
@@ -396,7 +403,7 @@ private:
 	StrongRef<StreamBuffer> localUniformBuffer;
 	// functions that need to be called to cleanup objects that were needed for rendering a frame.
 	// We need a vector for each frame in flight.
-	std::vector<std::vector<std::function<void()>>> cleanUpFunctions;
+	std::vector<std::vector<std::function<bool()>>> cleanUpFunctions;
 	std::vector<std::vector<std::function<void()>>> readbackCallbacks;
 	std::set<StrongRef<Shader>> usedShadersInFrame;
 	RenderpassState renderPassState;
