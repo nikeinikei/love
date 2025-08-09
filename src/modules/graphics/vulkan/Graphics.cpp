@@ -1736,7 +1736,7 @@ int Graphics::rateDeviceSuitability(VkPhysicalDevice device, bool querySwapChain
 	return score;
 }
 
-QueueFamilyIndices Graphics::findQueueFamilies(VkPhysicalDevice device)
+QueueFamilyIndices Graphics::findQueueFamilies(VkPhysicalDevice device) const
 {
 	QueueFamilyIndices indices;
 
@@ -1957,7 +1957,7 @@ void Graphics::createSurface()
 		throw love::Exception("Failed to create Vulkan window surface: %s", SDL_GetError());
 }
 
-SwapChainSupportDetails Graphics::querySwapChainSupport(VkPhysicalDevice device)
+SwapChainSupportDetails Graphics::querySwapChainSupport(VkPhysicalDevice device) const
 {
 	SwapChainSupportDetails details;
 
@@ -2093,7 +2093,7 @@ void Graphics::createSwapChain()
 	}
 }
 
-VkSurfaceFormatKHR Graphics::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &availableFormats)
+VkSurfaceFormatKHR Graphics::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &availableFormats) const
 {
 	std::vector<VkFormat> formatOrder;
 
@@ -2126,7 +2126,7 @@ VkSurfaceFormatKHR Graphics::chooseSwapSurfaceFormat(const std::vector<VkSurface
 	return availableFormats[0];
 }
 
-VkPresentModeKHR Graphics::chooseSwapPresentMode(const std::vector<VkPresentModeKHR> &availablePresentModes)
+VkPresentModeKHR Graphics::chooseSwapPresentMode(const std::vector<VkPresentModeKHR> &availablePresentModes) const
 {
 	const auto begin = availablePresentModes.begin();
 	const auto end = availablePresentModes.end();
@@ -2168,7 +2168,7 @@ static uint32_t clampuint32_t(uint32_t value, uint32_t min, uint32_t max)
 	return value;
 }
 
-VkExtent2D Graphics::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities)
+VkExtent2D Graphics::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) const
 {
 	if (capabilities.currentExtent.width != UINT32_MAX)
 		return capabilities.currentExtent;
@@ -2186,7 +2186,7 @@ VkExtent2D Graphics::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabiliti
 	}
 }
 
-VkCompositeAlphaFlagBitsKHR Graphics::chooseCompositeAlpha(const VkSurfaceCapabilitiesKHR &capabilities)
+VkCompositeAlphaFlagBitsKHR Graphics::chooseCompositeAlpha(const VkSurfaceCapabilitiesKHR &capabilities) const
 {
 	if (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
 		return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -2227,7 +2227,7 @@ void Graphics::createImageViews()
 	}
 }
 
-VkFramebuffer Graphics::createFramebuffer(FramebufferConfiguration &configuration)
+VkFramebuffer Graphics::createFramebuffer(FramebufferConfiguration &configuration) const
 {
 	std::vector<VkImageView> attachments;
 
@@ -2339,7 +2339,7 @@ void Graphics::createDefaultShaders()
 	}
 }
 
-VkRenderPass Graphics::createRenderPass(RenderPassConfiguration &configuration)
+VkRenderPass Graphics::createRenderPass(RenderPassConfiguration &configuration) const
 {
 	VkSubpassDescription subPass{};
 	subPass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -2828,6 +2828,8 @@ void Graphics::setRenderPass(const RenderTargets &rts, int pixelw, int pixelh)
 
 void Graphics::startRenderPass()
 {
+	std::cout << "startRenderPass" << std::endl;
+
 	renderPassState.active = true;
 
 	if (renderPassState.isWindow && renderPassState.windowClearRequested)
@@ -2855,6 +2857,8 @@ void Graphics::startRenderPass()
 
 void Graphics::endRenderPass()
 {
+	std::cout << "endRenderPass" << std::endl;
+
 	renderPassState.active = false;
 
 	vkCmdEndRenderPass(commandBuffers.at(currentFrame));
@@ -2866,7 +2870,7 @@ void Graphics::endRenderPass()
 	renderPassState.renderPassConfiguration.staticData.depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 }
 
-VkSampler Graphics::createSampler(const SamplerState &samplerState)
+VkSampler Graphics::createSampler(const SamplerState &samplerState) const
 {
 	VkSamplerCreateInfo samplerInfo{};
 	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -3263,7 +3267,7 @@ void Graphics::createColorResources()
 	}
 }
 
-VkFormat Graphics::findSupportedFormat(const std::vector<VkFormat> &candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
+VkFormat Graphics::findSupportedFormat(const std::vector<VkFormat> &candidates, VkImageTiling tiling, VkFormatFeatureFlags features) const
 {
 	for (auto format : candidates)
 	{
@@ -3278,7 +3282,7 @@ VkFormat Graphics::findSupportedFormat(const std::vector<VkFormat> &candidates, 
 	throw love::Exception("failed to find supported format");
 }
 
-VkFormat Graphics::findDepthFormat()
+VkFormat Graphics::findDepthFormat() const
 {
 	return findSupportedFormat(
 		{ VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT },
