@@ -431,13 +431,6 @@ void Graphics::submitGpuCommands(SubmitMode submitMode, void *screenshotCallback
 
 	endRecordingGraphicsCommands();
 
-	if (!imagesInFlight.empty())
-	{
-		if (imagesInFlight[imageIndex] != VK_NULL_HANDLE)
-			vkWaitForFences(device, 1, &imagesInFlight.at(imageIndex), VK_TRUE, UINT64_MAX);
-		imagesInFlight[imageIndex] = inFlightFences[currentFrame];
-	}
-
 	std::array<VkCommandBuffer, 1> submitCommandbuffers = { commandBuffers.at(currentFrame) };
 
 	VkSubmitInfo submitInfo{};
@@ -457,7 +450,7 @@ void Graphics::submitGpuCommands(SubmitMode submitMode, void *screenshotCallback
 	submitInfo.commandBufferCount = static_cast<uint32_t>(submitCommandbuffers.size());
 	submitInfo.pCommandBuffers = submitCommandbuffers.data();
 
-	VkSemaphore signalSemaphores[] = { renderFinishedSemaphores.at(currentFrame) };
+	VkSemaphore signalSemaphores[] = { renderFinishedSemaphores.at(imageIndex) };
 
 	VkFence fence = VK_NULL_HANDLE;
 
@@ -469,7 +462,6 @@ void Graphics::submitGpuCommands(SubmitMode submitMode, void *screenshotCallback
 			submitInfo.pSignalSemaphores = signalSemaphores;
 		}
 
-		vkResetFences(device, 1, &inFlightFences[currentFrame]);
 		fence = inFlightFences[currentFrame];
 	}
 
@@ -572,7 +564,7 @@ void Graphics::present(void *screenshotCallbackdata)
 		VkPresentInfoKHR presentInfo{};
 		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 		presentInfo.waitSemaphoreCount = 1;
-		presentInfo.pWaitSemaphores = &renderFinishedSemaphores.at(currentFrame);
+		presentInfo.pWaitSemaphores = &renderFinishedSemaphores.at(imageIndex);
 		presentInfo.swapchainCount = 1;
 		presentInfo.pSwapchains = &swapChain;
 		presentInfo.pImageIndices = &imageIndex;
@@ -1383,6 +1375,8 @@ void Graphics::beginSwapChainFrame()
 	{
 		imageRequested = false;
 	}
+	
+	vkResetFences(device, 1, &inFlightFences.at(currentFrame));
 
 	startRecordingGraphicsCommands();
 
@@ -3374,9 +3368,7 @@ void Graphics::createCommandBuffers()
 void Graphics::createSyncObjects()
 {
 	imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-	renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
 	inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-	imagesInFlight.resize(swapChainImages.size(), VK_NULL_HANDLE);
 
 	VkSemaphoreCreateInfo semaphoreInfo{};
 	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -3386,10 +3378,18 @@ void Graphics::createSyncObjects()
 	fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+	{
 		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores.at(i)) != VK_SUCCESS ||
-			vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores.at(i)) != VK_SUCCESS ||
 			vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences.at(i)) != VK_SUCCESS)
 			throw love::Exception("Failed to create Vulkan synchronization objects for a frame!");
+	}
+
+	renderFinishedSemaphores.resize(swapChainImages.size());
+	for (size_t i = 0; i < swapChainImages.size(); i++)
+	{
+		if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores.at(i)) != VK_SUCCESS)
+			throw love::Exception("Failed to create image available semaphore");
+	}
 }
 
 void Graphics::cleanup()

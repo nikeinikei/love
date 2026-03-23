@@ -398,7 +398,6 @@ private:
 	std::vector<VkSemaphore> imageAvailableSemaphores;
 	std::vector<VkSemaphore> renderFinishedSemaphores;
 	std::vector<VkFence> inFlightFences;
-	std::vector<VkFence> imagesInFlight;
 	int vsync = 1;
 	VkDeviceSize minUniformBufferOffsetAlignment = 0;
 	bool imageRequested = false;
