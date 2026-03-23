@@ -1469,9 +1469,11 @@ void Graphics::startRecordingGraphicsCommands()
 	}
 
 	// Update the pending render pass state with current backbuffer data if no RT is active.
-	// If one is active, the state shouldn't need updating.
+	// If one is active, the state (aside from the active pipeline) shouldn't need updating.
 	if (!isRenderTargetActive())
 		setDefaultRenderPass();
+	else
+		renderPassState.pipeline = VK_NULL_HANDLE;
 
 	if (defaultVertexBuffer)
 	{
