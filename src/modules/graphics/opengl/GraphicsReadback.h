@@ -22,6 +22,7 @@
 
 // LOVE
 #include "graphics/GraphicsReadback.h"
+#include "graphics/Volatile.h"
 #include "FenceSync.h"
 #include "common/math.h"
 
@@ -32,7 +33,7 @@ namespace graphics
 namespace opengl
 {
 
-class GraphicsReadback final : public love::graphics::GraphicsReadback
+class GraphicsReadback final : public love::graphics::GraphicsReadback, public Volatile
 {
 public:
 
@@ -42,6 +43,9 @@ public:
 
 	void wait() override;
 	void update() override;
+
+	bool loadVolatile() override;
+	void unloadVolatile() override;
 
 private:
 

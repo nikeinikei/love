@@ -119,6 +119,17 @@ void GraphicsReadback::update()
 	}
 }
 
+bool GraphicsReadback::loadVolatile()
+{
+	// Don't need to (re)create anything here, since the work is done in sync.fence().
+	return true;
+}
+
+void GraphicsReadback::unloadVolatile()
+{
+	sync.cleanup();
+}
+
 } // opengl
 } // graphics
 } // love
