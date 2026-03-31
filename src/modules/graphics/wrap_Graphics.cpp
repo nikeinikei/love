@@ -1602,7 +1602,7 @@ int w_newShader(lua_State *L)
 	{
 		Shader *shader = instance()->newShader(stages, options);
 		if (shader->isUsingDeprecatedTextureFunctions())
-			luax_markdeprecated(L, 1, "texture2D() or textureCube() function calls in shader code", API_CUSTOM, DEPRECATED_REPLACED, "texture() function calls");
+			luax_markdeprecated(L, 1, "texture2D() or texture3D() or textureCube() function calls in shader code", API_CUSTOM, DEPRECATED_REPLACED, "texture() function calls");
 		if (shader->isUsingDeprecatedTextureUniform())
 			luax_markdeprecated(L, 1, "'texture' uniform variable name in shader code", API_CUSTOM, DEPRECATED_NO_REPLACEMENT, "");
 		if (!shader->getUnsetVertexInputLocationsString().empty())
@@ -1640,7 +1640,7 @@ int w_newComputeShader(lua_State* L)
 	{
 		Shader *shader = instance()->newComputeShader(stages[0], options);
 		if (shader->isUsingDeprecatedTextureFunctions())
-			luax_markdeprecated(L, 1, "texture2D() or textureCube() function calls in shader code", API_CUSTOM, DEPRECATED_REPLACED, "texture() function calls");
+			luax_markdeprecated(L, 1, "texture2D() or texture3D() or textureCube() function calls in shader code", API_CUSTOM, DEPRECATED_REPLACED, "texture() function calls");
 		if (shader->isUsingDeprecatedTextureUniform())
 			luax_markdeprecated(L, 1, "'texture' uniform variable name in shader code", API_CUSTOM, DEPRECATED_NO_REPLACEMENT, "");
 		if (!shader->getUnsetVertexInputLocationsString().empty())
