@@ -60,23 +60,23 @@ Body *Physics::newBody(World *world, Body::Type type)
 	return new Body(world, b2Vec2(0, 0), type);
 }
 
-Body *Physics::newCircleBody(World *world, Body::Type type, float x, float y, float radius)
+Body *Physics::newCircleBody(World *world, Body::Type type, float x, float y, float radius, CircleShape *&shape)
 {
 	StrongRef<Body> body(newBody(world, x, y, type), Acquire::NORETAIN);
-	StrongRef<CircleShape> shape(newCircleShape(body, 0, 0, radius), Acquire::NORETAIN);
+	shape = newCircleShape(body, 0, 0, radius);
 	body->retain();
 	return body.get();
 }
 
-Body *Physics::newRectangleBody(World *world, Body::Type type, float x, float y, float w, float h, float angle)
+Body *Physics::newRectangleBody(World *world, Body::Type type, float x, float y, float w, float h, float angle, PolygonShape *&shape)
 {
 	StrongRef<Body> body(newBody(world, x, y, type), Acquire::NORETAIN);
-	StrongRef<PolygonShape> shape(newRectangleShape(body, 0, 0, w, h, angle), Acquire::NORETAIN);
+	shape = newRectangleShape(body, 0, 0, w, h, angle);
 	body->retain();
 	return body.get();
 }
 
-Body *Physics::newPolygonBody(World *world, Body::Type type, const Vector2 *coords, int count)
+Body *Physics::newPolygonBody(World *world, Body::Type type, const Vector2 *coords, int count, PolygonShape *&shape)
 {
 	Vector2 origin(0, 0);
 
@@ -88,32 +88,32 @@ Body *Physics::newPolygonBody(World *world, Body::Type type, const Vector2 *coor
 		localcoords.push_back(coords[i] - origin);
 
 	StrongRef<Body> body(newBody(world, origin.x, origin.y, type), Acquire::NORETAIN);
-	StrongRef<PolygonShape> shape(newPolygonShape(body, localcoords.data(), count), Acquire::NORETAIN);
+	shape = newPolygonShape(body, localcoords.data(), count);
 	body->retain();
 	return body.get();
 }
 
-Body *Physics::newEdgeBody(World *world, Body::Type type, float x1, float y1, float x2, float y2)
+Body *Physics::newEdgeBody(World *world, Body::Type type, float x1, float y1, float x2, float y2, EdgeShape *&shape)
 {
 	float wx = (x2 - x1) / 2.0f;
 	float wy = (y2 - y1) / 2.0f;
 	StrongRef<Body> body(newBody(world, wx, wy, type), Acquire::NORETAIN);
-	StrongRef<EdgeShape> shape(newEdgeShape(body, x1 - wx, y1 - wy, x2 - wx, y2 - wy), Acquire::NORETAIN);
+	shape = newEdgeShape(body, x1 - wx, y1 - wy, x2 - wx, y2 - wy);
 	body->retain();
 	return body.get();
 }
 
-Body *Physics::newEdgeBody(World *world, Body::Type type, float x1, float y1, float x2, float y2, float prevx, float prevy, float nextx, float nexty)
+Body *Physics::newEdgeBody(World *world, Body::Type type, float x1, float y1, float x2, float y2, float prevx, float prevy, float nextx, float nexty, EdgeShape *&shape)
 {
 	float wx = (x2 - x1) / 2.0f;
 	float wy = (y2 - y1) / 2.0f;
 	StrongRef<Body> body(newBody(world, wx, wy, type), Acquire::NORETAIN);
-	StrongRef<EdgeShape> shape(newEdgeShape(body, x1 - wx, y1 - wy, x2 - wx, y2 - wy, prevx - wx, prevy - wy, nextx - wx, nexty - wy), Acquire::NORETAIN);
+	shape = newEdgeShape(body, x1 - wx, y1 - wy, x2 - wx, y2 - wy, prevx - wx, prevy - wy, nextx - wx, nexty - wy);
 	body->retain();
 	return body.get();
 }
 
-Body *Physics::newChainBody(World *world, Body::Type type, bool loop, const Vector2 *coords, int count)
+Body *Physics::newChainBody(World *world, Body::Type type, bool loop, const Vector2 *coords, int count, ChainShape *&shape)
 {
 	Vector2 origin(0, 0);
 
@@ -125,7 +125,7 @@ Body *Physics::newChainBody(World *world, Body::Type type, bool loop, const Vect
 		localcoords.push_back(coords[i] - origin);
 
 	StrongRef<Body> body(newBody(world, origin.x, origin.y, type), Acquire::NORETAIN);
-	StrongRef<ChainShape> shape(newChainShape(body, loop, localcoords.data(), count), Acquire::NORETAIN);
+	shape = newChainShape(body, loop, localcoords.data(), count);
 	body->retain();
 	return body.get();
 }

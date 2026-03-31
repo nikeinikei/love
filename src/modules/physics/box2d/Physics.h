@@ -94,12 +94,12 @@ public:
 	 * body's world position is the center/average of the given coordinates,
 	 * and the shape is centered at the local origin.
 	 **/
-	Body *newCircleBody(World *world, Body::Type type, float x, float y, float radius);
-	Body *newRectangleBody(World *world, Body::Type type, float x, float y, float w, float h, float angle);
-	Body *newPolygonBody(World *world, Body::Type type, const Vector2 *coords, int count);
-	Body *newEdgeBody(World *world, Body::Type type, float x1, float y1, float x2, float y2);
-	Body *newEdgeBody(World *world, Body::Type type, float x1, float y1, float x2, float y2, float prevx, float prevy, float nextx, float nexty);
-	Body *newChainBody(World *world, Body::Type type, bool loop, const Vector2 *coords, int count);
+	Body *newCircleBody(World *world, Body::Type type, float x, float y, float radius, CircleShape *&shape);
+	Body *newRectangleBody(World *world, Body::Type type, float x, float y, float w, float h, float angle, PolygonShape *&shape);
+	Body *newPolygonBody(World *world, Body::Type type, const Vector2 *coords, int count, PolygonShape *&shape);
+	Body *newEdgeBody(World *world, Body::Type type, float x1, float y1, float x2, float y2, EdgeShape *&shape);
+	Body *newEdgeBody(World *world, Body::Type type, float x1, float y1, float x2, float y2, float prevx, float prevy, float nextx, float nexty, EdgeShape *&shape);
+	Body *newChainBody(World *world, Body::Type type, bool loop, const Vector2 *coords, int count, ChainShape *&shape);
 
 	// Necessary to support the deprecated newFixture API.
 	Shape *newAttachedShape(Body *body, Shape *prototype, float density);

@@ -96,11 +96,14 @@ int w_newCircleBody(lua_State *L)
 	float radius = (float)luaL_checknumber(L, 5);
 
 	Body *body = nullptr;
-	luax_catchexcept(L, [&]() { body = instance()->newCircleBody(world, btype, x, y, radius); });
+	CircleShape *shape = nullptr;
+	luax_catchexcept(L, [&]() { body = instance()->newCircleBody(world, btype, x, y, radius, shape); });
 
 	luax_pushtype(L, body);
+	luax_pushshape(L, shape);
 	body->release();
-	return 1;
+	shape->release();
+	return 2;
 }
 
 int w_newRectangleBody(lua_State *L)
@@ -119,11 +122,14 @@ int w_newRectangleBody(lua_State *L)
 	float angle = (float)luaL_optnumber(L, 7, 0.0);
 
 	Body *body = nullptr;
-	luax_catchexcept(L, [&]() { body = instance()->newRectangleBody(world, btype, x, y, w, h, angle); });
+	PolygonShape *shape = nullptr;
+	luax_catchexcept(L, [&]() { body = instance()->newRectangleBody(world, btype, x, y, w, h, angle, shape); });
 
 	luax_pushtype(L, body);
+	luax_pushshape(L, shape);
 	body->release();
-	return 1;
+	shape->release();
+	return 2;
 }
 
 int w_newPolygonBody(lua_State *L)
@@ -170,11 +176,14 @@ int w_newPolygonBody(lua_State *L)
 	}
 
 	Body *body = nullptr;
-	luax_catchexcept(L, [&]() { body = instance()->newPolygonBody(world, btype, coords.data(), (int)coords.size()); });
+	PolygonShape *shape = nullptr;
+	luax_catchexcept(L, [&]() { body = instance()->newPolygonBody(world, btype, coords.data(), (int)coords.size(), shape); });
 
 	luax_pushtype(L, body);
+	luax_pushshape(L, shape);
 	body->release();
-	return 1;
+	shape->release();
+	return 2;
 }
 
 int w_newEdgeBody(lua_State *L)
@@ -192,10 +201,11 @@ int w_newEdgeBody(lua_State *L)
 	float y2 = (float)luaL_checknumber(L, 6);
 
 	Body *body = nullptr;
+	EdgeShape *shape = nullptr;
 
 	if (lua_isnoneornil(L, 7))
 	{
-		luax_catchexcept(L, [&]() { body = instance()->newEdgeBody(world, btype, x1, y1, x2, y2); });
+		luax_catchexcept(L, [&]() { body = instance()->newEdgeBody(world, btype, x1, y1, x2, y2, shape); });
 	}
 	else
 	{
@@ -203,12 +213,14 @@ int w_newEdgeBody(lua_State *L)
 		float prevy = (float)luaL_checknumber(L, 8);
 		float nextx = (float)luaL_checknumber(L, 9);
 		float nexty = (float)luaL_checknumber(L, 10);
-		luax_catchexcept(L, [&]() { body = instance()->newEdgeBody(world, btype, x1, y1, x2, y2, prevx, prevy, nextx, nexty); });
+		luax_catchexcept(L, [&]() { body = instance()->newEdgeBody(world, btype, x1, y1, x2, y2, prevx, prevy, nextx, nexty, shape); });
 	}
 
 	luax_pushtype(L, body);
+	luax_pushshape(L, shape);
 	body->release();
-	return 1;
+	shape->release();
+	return 2;
 }
 
 int w_newChainBody(lua_State *L)
@@ -257,11 +269,14 @@ int w_newChainBody(lua_State *L)
 	}
 
 	Body *body = nullptr;
-	luax_catchexcept(L, [&]() { body = instance()->newChainBody(world, btype, loop, coords.data(), (int)coords.size()); });
+	ChainShape *shape = nullptr;
+	luax_catchexcept(L, [&]() { body = instance()->newChainBody(world, btype, loop, coords.data(), (int)coords.size(), shape); });
 
 	luax_pushtype(L, body);
+	luax_pushshape(L, shape);
 	body->release();
-	return 1;
+	shape->release();
+	return 2;
 }
 
 int w_newFixture(lua_State *L)
