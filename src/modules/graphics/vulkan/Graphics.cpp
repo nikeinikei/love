@@ -31,6 +31,7 @@
 
 #include <SDL3/SDL_vulkan.h>
 #include <SDL3/SDL_hints.h>
+#include <SDL3/SDL_init.h>
 
 #include <algorithm>
 #include <vector>
@@ -95,6 +96,10 @@ static void checkOptionalInstanceExtensions(OptionalInstanceExtensions& ext)
 Graphics::Graphics()
 	: love::graphics::Graphics("love.graphics.vulkan")
 {
+	// Needed for SDL_Vulkan_LoadLibrary, if graphics is loaded before the window.
+	if (!SDL_InitSubSystem(SDL_INIT_VIDEO))
+		throw love::Exception("Could not initialize SDL video subsystem (%s)", SDL_GetError());
+
 	if (!SDL_Vulkan_LoadLibrary(nullptr))
 		throw love::Exception("could not find vulkan");
 
@@ -192,6 +197,7 @@ Graphics::~Graphics()
 	vkDestroyInstance(instance, nullptr);
 
 	SDL_Vulkan_UnloadLibrary();
+	SDL_QuitSubSystem(SDL_INIT_VIDEO);
 }
 
 // START OVERRIDEN FUNCTIONS
