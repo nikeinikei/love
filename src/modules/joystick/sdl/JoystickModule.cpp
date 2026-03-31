@@ -95,6 +95,16 @@ int JoystickModule::getJoystickCount() const
 	return (int) activeSticks.size();
 }
 
+void JoystickModule::setBackgroundEvents(bool enable)
+{
+	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, enable ? "1" : "0");
+}
+
+bool JoystickModule::hasBackgroundEvents() const
+{
+	return SDL_GetHintBoolean(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, false);
+}
+
 love::joystick::Joystick *JoystickModule::getJoystickFromID(int instanceid)
 {
 	for (auto stick : activeSticks)

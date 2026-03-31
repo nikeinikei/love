@@ -71,6 +71,16 @@ public:
 	virtual int getJoystickCount() const = 0;
 
 	/**
+	 * Sets whether joystick input events are produced while the app doesn't have focus.
+	 **/
+	virtual void setBackgroundEvents(bool enable) = 0;
+
+	/**
+	 * Gets whether joystick input events are produced while the app doesn't have focus.
+	 **/
+	virtual bool hasBackgroundEvents() const = 0;
+
+	/**
 	 * Sets the virtual Gamepad mapping for a joystick input value for all
 	 * joystick devices with the specified joystick product GUID.
 	 * If any joysticks with the specified GUID are connected, they will be

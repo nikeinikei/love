@@ -52,6 +52,9 @@ public:
 	int getIndex(const love::joystick::Joystick *joystick) override;
 	int getJoystickCount() const override;
 
+	void setBackgroundEvents(bool enable) override;
+	bool hasBackgroundEvents() const override;
+
 	bool setGamepadMapping(const std::string &guid, Joystick::GamepadInput gpinput, Joystick::JoystickInput joyinput) override;
 	void loadGamepadMappings(const std::string &mappings) override;
 

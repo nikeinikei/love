@@ -65,6 +65,18 @@ int w_getJoystickCount(lua_State *L)
 	return 1;
 }
 
+int w_setBackgroundEvents(lua_State *L)
+{
+	instance()->setBackgroundEvents(luax_checkboolean(L, 1));
+	return 0;
+}
+
+int w_hasBackgroundEvents(lua_State *L)
+{
+	luax_pushboolean(L, instance()->hasBackgroundEvents());
+	return 1;
+}
+
 int w_setGamepadMapping(lua_State *L)
 {
 	// Only accept a GUID string. We don't accept a Joystick object because
@@ -176,6 +188,8 @@ static const luaL_Reg functions[] =
 {
 	{ "getJoysticks", w_getJoysticks },
 	{ "getJoystickCount", w_getJoystickCount },
+	{ "setBackgroundEvents", w_setBackgroundEvents },
+	{ "hasBackgroundEvents", w_hasBackgroundEvents },
 	{ "setGamepadMapping", w_setGamepadMapping },
 	{ "loadGamepadMappings", w_loadGamepadMappings },
 	{ "saveGamepadMappings", w_saveGamepadMappings },
