@@ -115,9 +115,10 @@ struct RenderpassState
 	VkRenderingAttachmentInfo depthAttachment;
 	VkRenderingAttachmentInfo stencilAttachment;
 	VkRenderingInfo renderingInfo{};
-	VkPipeline pipeline = VK_NULL_HANDLE;
 	uint64 packedColorAttachmentFormats = 0;
 	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
+	Shader *activeShader;
+	VertexAttributesID vertexAttributes;
 
 	bool windowClearRequested = false;
 	OptionalColorD mainWindowClearColorValue;
@@ -191,8 +192,6 @@ public:
 	int getVsync() const;
 	void mapLocalUniformData(void *data, size_t size, VkDescriptorBufferInfo &bufferInfo);
 
-	VkPipeline createGraphicsPipeline(Shader *shader, const GraphicsPipelineConfigurationCore &configuration, const GraphicsPipelineConfigurationNoDynamicState *noDynamicStateConfiguration);
-
 	uint32 getDeviceApiVersion() const { return deviceApiVersion; }
 
 	uint64 getRealFrameIndex() const { return realFrameIndex; }
@@ -257,8 +256,8 @@ private:
 	void createVulkanVertexFormat(
 		Shader *shader,
 		const VertexAttributes &attributes, 
-		std::vector<VkVertexInputBindingDescription> &bindingDescriptions, 
-		std::vector<VkVertexInputAttributeDescription> &attributeDescriptions);
+		std::vector<VkVertexInputBindingDescription2EXT> &bindingDescriptions,
+		std::vector<VkVertexInputAttributeDescription2EXT> &attributeDescriptions);
 	void prepareDraw(
 		VertexAttributesID attributesID,
 		const BufferBindings &buffers, graphics::Texture *texture,

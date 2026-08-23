@@ -47,71 +47,6 @@ namespace graphics
 namespace vulkan
 {
 
-struct GraphicsPipelineConfigurationCore
-{
-	std::array<VkFormat, 8> colorFormats{VK_FORMAT_UNDEFINED};
-	VkFormat depthStencilFormat;
-	VertexAttributesID attributesID;
-	bool wireFrame;
-	uint32 blendStateKey;
-	ColorChannelMask colorChannelMask;
-	VkSampleCountFlagBits msaaSamples;
-	uint32_t numColorAttachments;
-	PrimitiveType primitiveType;
-	uint64 packedColorAttachmentFormats;
-
-	GraphicsPipelineConfigurationCore()
-	{
-		memset(this, 0, sizeof(GraphicsPipelineConfigurationCore));
-	}
-
-	bool operator==(const GraphicsPipelineConfigurationCore &other) const
-	{
-		return memcmp(this, &other, sizeof(GraphicsPipelineConfigurationCore)) == 0;
-	}
-};
-
-struct GraphicsPipelineConfigurationCoreHasher
-{
-	size_t operator() (const GraphicsPipelineConfigurationCore &configuration) const
-	{
-		return XXH32(&configuration, sizeof(GraphicsPipelineConfigurationCore), 0);
-	}
-};
-
-struct GraphicsPipelineConfigurationNoDynamicState
-{
-	CullMode cullmode = CULL_NONE;
-	Winding winding = WINDING_MAX_ENUM;
-	StencilAction stencilAction = STENCIL_MAX_ENUM;
-	CompareMode stencilCompare = COMPARE_MAX_ENUM;
-	DepthState depthState{};
-};
-
-struct GraphicsPipelineConfigurationFull
-{
-	GraphicsPipelineConfigurationCore core;
-	GraphicsPipelineConfigurationNoDynamicState noDynamicState;
-
-	GraphicsPipelineConfigurationFull()
-	{
-		memset(this, 0, sizeof(GraphicsPipelineConfigurationFull));
-	}
-
-	bool operator==(const GraphicsPipelineConfigurationFull &other) const
-	{
-		return memcmp(this, &other, sizeof(GraphicsPipelineConfigurationFull)) == 0;
-	}
-};
-
-struct GraphicsPipelineConfigurationFullHasher
-{
-	size_t operator() (const GraphicsPipelineConfigurationFull &configuration) const
-	{
-		return XXH32(&configuration, sizeof(GraphicsPipelineConfigurationFull), 0);
-	}
-};
-
 class Graphics;
 
 class SharedDescriptorPools
@@ -174,8 +109,6 @@ public:
 	bool loadVolatile() override;
 	void unloadVolatile() override;
 
-	VkPipeline getComputePipeline() const;
-
 	const std::vector<VkPipelineShaderStageCreateInfo> &getShaderStages() const;
 
 	const VkPipelineLayout getGraphicsPipelineLayout() const;
@@ -183,6 +116,8 @@ public:
 	void newFrame(uint64 graphicsFrameIndex);
 
 	void cmdPushDescriptorSets(VkCommandBuffer, VkPipelineBindPoint);
+
+	void cmdBindShader(VkCommandBuffer);
 
 	void attach() override;
 
@@ -198,9 +133,6 @@ public:
 	void updateUniform(const UniformInfo *info, int count) override;
 
 	void setMainTex(graphics::Texture *texture);
-
-	VkPipeline getCachedGraphicsPipeline(Graphics *vgfx, const GraphicsPipelineConfigurationCore &configuration);
-	VkPipeline getCachedGraphicsPipeline(Graphics *vgfx, const GraphicsPipelineConfigurationFull &configuration);
 
 	const std::vector<TextureInfo> &getActiveTextureInfo() const { return allTextureInfo; }
 	const std::vector<BufferInfo> &getActiveStorageBufferInfo() const { return storageBufferInfo; }
@@ -218,8 +150,6 @@ private:
 	void applyTexture(const UniformInfo *info, int i, love::graphics::Texture *texture, UniformType basetype, bool isdefault) override;
 	void applyBuffer(const UniformInfo *info, int i, love::graphics::Buffer *buffer, UniformType basetype, bool isdefault) override;
 
-	VkPipeline computePipeline = VK_NULL_HANDLE;
-
 	VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
 	VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 
@@ -228,8 +158,8 @@ private:
 	std::vector<VkBufferView> descriptorBufferViews;
 	std::vector<VkWriteDescriptorSet> descriptorWrites;
 
-	std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
-	std::vector<VkShaderModule> shaderModules;
+	std::vector<VkShaderStageFlagBits> stageFlagBits;
+	std::vector<VkShaderEXT> shaders;
 
 	std::vector<TextureInfo> allTextureInfo;
 	std::vector<BufferInfo> storageBufferInfo;
@@ -252,9 +182,6 @@ private:
 	OptionalInt builtinUniformDataOffset;
 
 	std::unordered_map<std::string, AttributeInfo> attributes;
-
-	std::unordered_map<GraphicsPipelineConfigurationCore, VkPipeline, GraphicsPipelineConfigurationCoreHasher> graphicsPipelinesDynamicState;
-	std::unordered_map<GraphicsPipelineConfigurationFull, VkPipeline, GraphicsPipelineConfigurationFullHasher> graphicsPipelinesNoDynamicState;
 };
 
 }

@@ -60,7 +60,8 @@ static const std::vector<const char*> validationLayers = {
 
 static const std::vector<const char*> deviceExtensions = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-	VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
+	VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+	VK_EXT_SHADER_OBJECT_EXTENSION_NAME
 };
 
 constexpr int DEFAULT_VERTEX_BUFFER_BINDING = 0;
@@ -907,17 +908,19 @@ void Graphics::setFrontFaceWinding(Winding winding)
 
 	flushBatchedDraws();
 
-	states.back().winding = winding;
+	vkCmdSetFrontFaceEXT(commandBuffers.at(currentFrame), Vulkan::getFrontFace(winding));
 
-	if (optionalDeviceExtensions.extendedDynamicState)
-		vkCmdSetFrontFaceEXT(
-			commandBuffers.at(currentFrame),
-			Vulkan::getFrontFace(winding));
+	states.back().winding = winding;
 }
 
 void Graphics::setColorMask(ColorChannelMask mask)
 {
 	flushBatchedDraws();
+
+	VkColorComponentFlags flags = Vulkan::getColorMask(mask);
+	std::vector<VkColorComponentFlags> colorWriteMasks(renderPassState.colorAttachments.size(), flags);
+
+	vkCmdSetColorWriteMaskEXT(commandBuffers.at(currentFrame), 0, colorWriteMasks.size(), colorWriteMasks.data());
 
 	states.back().colorMask = mask;
 }
@@ -925,6 +928,16 @@ void Graphics::setColorMask(ColorChannelMask mask)
 void Graphics::setBlendState(const BlendState &blend)
 {
 	flushBatchedDraws();
+
+	std::vector<VkBool32> enables(renderPassState.colorAttachments.size(), Vulkan::getBool(blend.enable));
+
+	vkCmdSetColorBlendEnableEXT(commandBuffers.at(currentFrame), 0, enables.size(), enables.data());
+
+	VkColorBlendEquationEXT colorBlendEquation = Vulkan::getColorBlendEquation(blend);
+
+	std::vector<VkColorBlendEquationEXT> equations(renderPassState.colorAttachments.size(), colorBlendEquation);
+
+	vkCmdSetColorBlendEquationEXT(commandBuffers.at(currentFrame), 0, equations.size(), equations.data());
 
 	states.back().blend = blend;
 }
@@ -1117,7 +1130,7 @@ void Graphics::applyScissor()
 		}
 	}
 
-	vkCmdSetScissor(commandBuffers.at(currentFrame), 0, 1, &scissor);
+	vkCmdSetScissorWithCountEXT(commandBuffers.at(currentFrame), 1, &scissor);
 }
 
 void Graphics::setScissor(const FRect &rect)
@@ -1152,12 +1165,11 @@ void Graphics::setStencilState(const StencilState &s)
 	vkCmdSetStencilCompareMask(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, s.readMask);
 	vkCmdSetStencilReference(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, s.value);
 
-	if (optionalDeviceExtensions.extendedDynamicState)
-		vkCmdSetStencilOpEXT(
-			commandBuffers.at(currentFrame),
-			VK_STENCIL_FRONT_AND_BACK,
-			VK_STENCIL_OP_KEEP, Vulkan::getStencilOp(s.action),
-			VK_STENCIL_OP_KEEP, Vulkan::getCompareOp(getReversedCompareMode(s.compare)));
+	vkCmdSetStencilOpEXT(
+		commandBuffers.at(currentFrame),
+		VK_STENCIL_FRONT_AND_BACK,
+		VK_STENCIL_OP_KEEP, Vulkan::getStencilOp(s.action),
+		VK_STENCIL_OP_KEEP, Vulkan::getCompareOp(getReversedCompareMode(s.compare)));
 
 	states.back().stencil = s;
 }
@@ -1168,14 +1180,9 @@ void Graphics::setDepthMode(CompareMode compare, bool write)
 
 	flushBatchedDraws();
 
-	if (optionalDeviceExtensions.extendedDynamicState)
-	{
-		vkCmdSetDepthCompareOpEXT(
-			commandBuffers.at(currentFrame), Vulkan::getCompareOp(compare));
+	vkCmdSetDepthCompareOpEXT(commandBuffers.at(currentFrame), Vulkan::getCompareOp(compare));
 
-		vkCmdSetDepthWriteEnableEXT(
-			commandBuffers.at(currentFrame), Vulkan::getBool(write));
-	}
+	vkCmdSetDepthWriteEnableEXT(commandBuffers.at(currentFrame), Vulkan::getBool(write));
 
 	states.back().depthTest = compare;
 	states.back().depthWrite = write;
@@ -1187,6 +1194,8 @@ void Graphics::setWireframe(bool enable)
 		return;
 
 	flushBatchedDraws();
+
+	vkCmdSetPolygonModeEXT(commandBuffers.at(currentFrame), Vulkan::getPolygonMode(enable));
 
 	states.back().wireframe = enable;
 }
@@ -1368,7 +1377,7 @@ bool Graphics::dispatch(love::graphics::Shader *shader, int x, int y, int z)
 	if (renderPassState.active)
 		endRenderPass();
 
-	vkCmdBindPipeline(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE, computeShader->getComputePipeline());
+	computeShader->cmdBindShader(commandBuffers.at(currentFrame));
 
 	computeShader->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -1397,7 +1406,7 @@ bool Graphics::dispatch(love::graphics::Shader *shader, love::graphics::Buffer *
 	if (renderPassState.active)
 		endRenderPass();
 
-	vkCmdBindPipeline(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE, computeShader->getComputePipeline());
+	computeShader->cmdBindShader(commandBuffers.at(currentFrame));
 
 	computeShader->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -1430,23 +1439,46 @@ void Graphics::initDynamicState()
 	vkCmdSetStencilCompareMask(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, states.back().stencil.readMask);
 	vkCmdSetStencilReference(commandBuffers.at(currentFrame), VK_STENCIL_FRONT_AND_BACK, states.back().stencil.value);
 
-	if (optionalDeviceExtensions.extendedDynamicState)
-	{
-		 vkCmdSetStencilOpEXT(
-			commandBuffers.at(currentFrame),
-			VK_STENCIL_FRONT_AND_BACK,
-			VK_STENCIL_OP_KEEP, Vulkan::getStencilOp(states.back().stencil.action),
-			VK_STENCIL_OP_KEEP, Vulkan::getCompareOp(getReversedCompareMode(states.back().stencil.compare)));
+	vkCmdSetStencilOpEXT(
+		commandBuffers.at(currentFrame),
+		VK_STENCIL_FRONT_AND_BACK,
+		VK_STENCIL_OP_KEEP, Vulkan::getStencilOp(states.back().stencil.action),
+		VK_STENCIL_OP_KEEP, Vulkan::getCompareOp(getReversedCompareMode(states.back().stencil.compare)));
 
-		vkCmdSetDepthCompareOpEXT(
-			commandBuffers.at(currentFrame), Vulkan::getCompareOp(states.back().depthTest));
+	vkCmdSetDepthCompareOpEXT(
+		commandBuffers.at(currentFrame), Vulkan::getCompareOp(states.back().depthTest));
 
-		vkCmdSetDepthWriteEnableEXT(
-			commandBuffers.at(currentFrame), Vulkan::getBool(states.back().depthWrite));
+	vkCmdSetDepthWriteEnableEXT(
+		commandBuffers.at(currentFrame), Vulkan::getBool(states.back().depthWrite));
 
-		vkCmdSetFrontFaceEXT(
-			commandBuffers.at(currentFrame), Vulkan::getFrontFace(states.back().winding));
-	}
+	vkCmdSetFrontFaceEXT(
+		commandBuffers.at(currentFrame), Vulkan::getFrontFace(states.back().winding));
+
+	vkCmdSetRasterizerDiscardEnable(commandBuffers.at(currentFrame), VK_FALSE);
+
+	vkCmdSetDepthTestEnable(commandBuffers.at(currentFrame), VK_TRUE);
+
+	vkCmdSetStencilTestEnable(commandBuffers.at(currentFrame), VK_TRUE);
+
+	vkCmdSetDepthBiasEnable(commandBuffers.at(currentFrame), VK_TRUE);
+
+	vkCmdSetRasterizationSamplesEXT(commandBuffers.at(currentFrame), msaaSamples);
+
+	std::vector<VkSampleMask> mask(msaaSamples, 1);
+
+	vkCmdSetSampleMaskEXT(commandBuffers.at(currentFrame), msaaSamples, mask.data());
+
+	vkCmdSetAlphaToCoverageEnableEXT(commandBuffers.at(currentFrame), VK_FALSE);
+
+	vkCmdSetPrimitiveRestartEnable(commandBuffers.at(currentFrame), VK_FALSE);
+
+	vkCmdSetDepthBiasEnableEXT(commandBuffers.at(currentFrame), VK_FALSE);
+
+	vkCmdSetDepthBias(commandBuffers.at(currentFrame), 0.0f, 0.0f, 0.0f);
+
+	vkCmdSetPolygonModeEXT(commandBuffers.at(currentFrame), Vulkan::getPolygonMode(states.back().wireframe));
+
+	applyScissor();
 }
 
 void Graphics::beginSwapChainFrame()
@@ -1572,7 +1604,7 @@ void Graphics::startRecordingGraphicsCommands()
 	if (!isRenderTargetActive())
 		setDefaultRenderPass();
 	else
-		renderPassState.pipeline = VK_NULL_HANDLE;
+		renderPassState.activeShader = VK_NULL_HANDLE;
 
 	if (defaultVertexBuffer)
 	{
@@ -1977,12 +2009,6 @@ void Graphics::createLogicalDevice()
 	createInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
 	createInfo.ppEnabledExtensionNames = enabledExtensions.data();
 
-	if (isDebugEnabled())
-	{
-		createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-		createInfo.ppEnabledLayerNames = validationLayers.data();
-	}
-
 	VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures{};
 	extendedDynamicStateFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
 	extendedDynamicStateFeatures.extendedDynamicState = VK_TRUE;
@@ -1995,7 +2021,12 @@ void Graphics::createLogicalDevice()
 	if (optionalDeviceExtensions.extendedDynamicState)
 		dynamicRenderingFeatures.pNext = &extendedDynamicStateFeatures;
 
-	createInfo.pNext = &dynamicRenderingFeatures;
+	VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeatures{};
+	shaderObjectFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT;
+	shaderObjectFeatures.shaderObject = VK_TRUE;
+	shaderObjectFeatures.pNext = &dynamicRenderingFeatures;
+
+	createInfo.pNext = &shaderObjectFeatures;
 
 	VkResult result = vkCreateDevice(physicalDevice, &createInfo, nullptr, &device);
 	if (result != VK_SUCCESS)
@@ -2409,8 +2440,8 @@ void Graphics::createDefaultShaders()
 void Graphics::createVulkanVertexFormat(
 	Shader *shader,
 	const VertexAttributes &attributes,
-	std::vector<VkVertexInputBindingDescription> &bindingDescriptions,
-	std::vector<VkVertexInputAttributeDescription> &attributeDescriptions)
+	std::vector<VkVertexInputBindingDescription2EXT> &bindingDescriptions,
+	std::vector<VkVertexInputAttributeDescription2EXT> &attributeDescriptions)
 {
 	std::set<uint32_t> usedBuffers;
 
@@ -2419,7 +2450,8 @@ void Graphics::createVulkanVertexFormat(
 		int i = pair.second.index;
 		uint32 bit = 1u << i;
 
-		VkVertexInputAttributeDescription attribdesc{};
+		VkVertexInputAttributeDescription2EXT attribdesc{};
+		attribdesc.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT;
 		attribdesc.location = i;
 
 		if (attributes.enableBits & bit)
@@ -2436,13 +2468,15 @@ void Graphics::createVulkanVertexFormat(
 			{
 				usedBuffers.insert(bufferbinding);
 
-				VkVertexInputBindingDescription bindingdesc{};
+				VkVertexInputBindingDescription2EXT bindingdesc{};
+				bindingdesc.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT;
 				bindingdesc.binding = bufferbinding;
 				if (attributes.instanceBits & (1u << attrib.bufferIndex))
 					bindingdesc.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 				else
 					bindingdesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 				bindingdesc.stride = attributes.bufferLayouts[attrib.bufferIndex].stride;
+				bindingdesc.divisor = 1;
 				bindingDescriptions.push_back(bindingdesc);
 			}
 		}
@@ -2475,10 +2509,12 @@ void Graphics::createVulkanVertexFormat(
 			{
 				usedBuffers.insert(DEFAULT_VERTEX_BUFFER_BINDING);
 
-				VkVertexInputBindingDescription bindingdesc{};
+				VkVertexInputBindingDescription2EXT bindingdesc{};
+				bindingdesc.sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT;
 				bindingdesc.binding = DEFAULT_VERTEX_BUFFER_BINDING;
 				bindingdesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 				bindingdesc.stride = 0; // no stride, will always read the same coord multiple times.
+				bindingdesc.divisor = 1;
 				bindingDescriptions.push_back(bindingdesc);
 			}
 		}
@@ -2492,52 +2528,37 @@ void Graphics::prepareDraw(VertexAttributesID attributesID, const BufferBindings
 	if (!renderPassState.active)
 		startRenderPass();
 
-	auto s = dynamic_cast<Shader*>(Shader::current);
+	auto currentShader = dynamic_cast<Shader*>(Shader::current);
 
-	usedShadersInFrame.insert(s);
+	usedShadersInFrame.insert(currentShader);
 
-	GraphicsPipelineConfigurationFull configuration{};
-
-	for (size_t i = 0; i < renderPassState.colorFormats.size(); i++)
-		configuration.core.colorFormats[i] = renderPassState.colorFormats[i];
-
-	configuration.core.depthStencilFormat = depthStencilFormat;
-	configuration.core.attributesID = attributesID;
-	configuration.core.wireFrame = states.back().wireframe && optionalDeviceFeatures.fillModeNonSolid;
-	configuration.core.blendStateKey = states.back().blend.toKey();
-	configuration.core.colorChannelMask = states.back().colorMask;
-	configuration.core.msaaSamples = renderPassState.msaa;
-	configuration.core.numColorAttachments = renderPassState.colorFormats.size();
-	configuration.core.packedColorAttachmentFormats = renderPassState.packedColorAttachmentFormats;
-	configuration.core.primitiveType = primitiveType;
-
-	VkPipeline pipeline = VK_NULL_HANDLE;
-
-	if (optionalDeviceExtensions.extendedDynamicState)
+	if (currentShader != renderPassState.activeShader)
 	{
-		vkCmdSetCullModeEXT(commandBuffers.at(currentFrame), Vulkan::getCullMode(cullmode));
-		pipeline = s->getCachedGraphicsPipeline(this, configuration.core);
-	}
-	else
-	{
-		configuration.noDynamicState.winding = states.back().winding;
-		configuration.noDynamicState.depthState.compare = states.back().depthTest;
-		configuration.noDynamicState.depthState.write = states.back().depthWrite;
-		configuration.noDynamicState.stencilAction = states.back().stencil.action;
-		configuration.noDynamicState.stencilCompare = states.back().stencil.compare;
-		configuration.noDynamicState.cullmode = cullmode;
-
-		pipeline = s->getCachedGraphicsPipeline(this, configuration);
+		renderPassState.activeShader = currentShader;
+		currentShader->cmdBindShader(commandBuffers.at(currentFrame));
 	}
 
-	if (pipeline != renderPassState.pipeline)
+	if (renderPassState.vertexAttributes != attributesID)
 	{
-		vkCmdBindPipeline(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-		renderPassState.pipeline = pipeline;
+		std::vector<VkVertexInputBindingDescription2EXT> bindingDescriptions;
+		std::vector<VkVertexInputAttributeDescription2EXT> attributeDescriptions;
+
+		VertexAttributes vertexAttributes;
+
+		findVertexAttributes(attributesID, vertexAttributes);
+
+		createVulkanVertexFormat(currentShader, vertexAttributes, bindingDescriptions, attributeDescriptions);
+
+		vkCmdSetVertexInputEXT(commandBuffers.at(currentFrame), bindingDescriptions.size(), bindingDescriptions.data(), attributeDescriptions.size(), attributeDescriptions.data());
+
+		renderPassState.vertexAttributes = attributesID;
 	}
 
-	s->setMainTex(texture);
-	s->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_GRAPHICS);
+	vkCmdSetPrimitiveTopology(commandBuffers.at(currentFrame), Vulkan::getPrimitiveTypeTopology(primitiveType));
+	vkCmdSetCullMode(commandBuffers.at(currentFrame), Vulkan::getCullMode(cullmode));
+
+	currentShader->setMainTex(texture);
+	currentShader->cmdPushDescriptorSets(commandBuffers.at(currentFrame), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 	VkBuffer vkbuffers[BufferBindings::MAX];
 	VkDeviceSize vkoffsets[BufferBindings::MAX];
@@ -2601,6 +2622,7 @@ void Graphics::setDefaultRenderPass()
 	renderPassState.depthAttachment.resolveImageView = VK_NULL_HANDLE;
 	renderPassState.depthAttachment.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	renderPassState.depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	renderPassState.depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 
 	renderPassState.stencilAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	renderPassState.stencilAttachment.pNext = VK_NULL_HANDLE;
@@ -2610,6 +2632,7 @@ void Graphics::setDefaultRenderPass()
 	renderPassState.stencilAttachment.resolveImageView = VK_NULL_HANDLE;
 	renderPassState.stencilAttachment.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	renderPassState.stencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	renderPassState.stencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 
 	renderPassState.colorAttachments.resize(1);
 	if (msaaSamples & VK_SAMPLE_COUNT_1_BIT)
@@ -2653,9 +2676,10 @@ void Graphics::setDefaultRenderPass()
 	renderPassState.renderingInfo.pStencilAttachment = &renderPassState.stencilAttachment;
 
 	renderPassState.isWindow = true;
-	renderPassState.pipeline = VK_NULL_HANDLE;
+	renderPassState.activeShader = VK_NULL_HANDLE;
 	renderPassState.msaa = msaaSamples;
 	renderPassState.packedColorAttachmentFormats = (uint8)swapChainPixelFormat;
+	renderPassState.vertexAttributes.invalidate();
 
 	// Can't call clear() here because it depends on current RT state, which might not be
 	// set yet when this is called from within setRenderTargetsInternal.
@@ -2762,8 +2786,9 @@ void Graphics::setRenderPass(const RenderTargets &rts, int pixelw, int pixelh)
 	}
 
 	renderPassState.isWindow = false;
-	renderPassState.pipeline = VK_NULL_HANDLE;
+	renderPassState.activeShader = VK_NULL_HANDLE;
 	renderPassState.packedColorAttachmentFormats = 0;
+	renderPassState.vertexAttributes.invalidate();
 	for (size_t i = 0; i < rts.colors.size(); i++)
 		renderPassState.packedColorAttachmentFormats |= ((uint64)rts.colors[i].texture->getPixelFormat()) << (i * 8ull);
 }
@@ -2783,9 +2808,26 @@ void Graphics::startRenderPass()
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
 
-	vkCmdSetViewport(commandBuffers.at(currentFrame), 0, 1, &viewport);
+	vkCmdSetViewportWithCount(commandBuffers.at(currentFrame), 1, &viewport);
 
 	vkCmdBeginRendering(commandBuffers.at(currentFrame), &renderPassState.renderingInfo);
+
+	// todo: clean this up.
+	VkColorComponentFlags flags = Vulkan::getColorMask(states.back().colorMask);
+	std::vector<VkColorComponentFlags> colorWriteMasks(renderPassState.colorAttachments.size(), flags);
+
+	vkCmdSetColorWriteMaskEXT(commandBuffers.at(currentFrame), 0, colorWriteMasks.size(), colorWriteMasks.data());
+
+	const auto &blend = states.back().blend;
+	std::vector<VkBool32> enables(renderPassState.colorAttachments.size(), Vulkan::getBool(blend.enable));
+
+	vkCmdSetColorBlendEnableEXT(commandBuffers.at(currentFrame), 0, enables.size(), enables.data());
+
+	VkColorBlendEquationEXT colorBlendEquation = Vulkan::getColorBlendEquation(blend);
+
+	std::vector<VkColorBlendEquationEXT> equations(renderPassState.colorAttachments.size(), colorBlendEquation);
+
+	vkCmdSetColorBlendEquationEXT(commandBuffers.at(currentFrame), 0, equations.size(), equations.data());
 
 	applyScissor();
 }
@@ -2913,184 +2955,6 @@ void Graphics::releaseDescriptorPools(SharedDescriptorPools *p)
 			sharedDescriptorPools.erase(key);
 		}
 	}
-}
-
-VkPipeline Graphics::createGraphicsPipeline(Shader *shader, const GraphicsPipelineConfigurationCore &configuration, const GraphicsPipelineConfigurationNoDynamicState *noDynamicStateConfiguration)
-{
-	VkGraphicsPipelineCreateInfo pipelineInfo{};
-	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-
-	auto &shaderStages = shader->getShaderStages();
-
-	std::vector<VkVertexInputBindingDescription> bindingDescriptions;
-	std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
-
-	VertexAttributes vertexAttributes;
-	findVertexAttributes(configuration.attributesID, vertexAttributes);
-
-	createVulkanVertexFormat(shader, vertexAttributes, bindingDescriptions, attributeDescriptions);
-
-	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size());
-	vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
-	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-	vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
-
-	VkPipelineViewportStateCreateInfo viewportState{};
-	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-	viewportState.viewportCount = 1;
-	viewportState.scissorCount = 1;
-
-	VkPipelineMultisampleStateCreateInfo multisampling{};
-	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisampling.sampleShadingEnable = VK_FALSE;
-	multisampling.rasterizationSamples = configuration.msaaSamples;
-
-	VkPipelineRasterizationStateCreateInfo rasterizer{};
-	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterizer.depthClampEnable = VK_FALSE;
-	rasterizer.rasterizerDiscardEnable = VK_FALSE;
-	rasterizer.polygonMode = Vulkan::getPolygonMode(configuration.wireFrame);
-	rasterizer.lineWidth = 1.0f;
-	if (!optionalDeviceExtensions.extendedDynamicState)
-	{
-		rasterizer.cullMode = Vulkan::getCullMode(noDynamicStateConfiguration->cullmode);
-		rasterizer.frontFace = Vulkan::getFrontFace(noDynamicStateConfiguration->winding);
-	}
-
-	rasterizer.depthBiasEnable = VK_FALSE;
-	rasterizer.depthBiasConstantFactor = 0.0f;
-	rasterizer.depthBiasClamp = 0.0f;
-	rasterizer.depthBiasSlopeFactor = 0.0f;
-
-	VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	inputAssembly.topology = Vulkan::getPrimitiveTypeTopology(configuration.primitiveType);
-	inputAssembly.primitiveRestartEnable = VK_FALSE;
-
-	VkPipelineDepthStencilStateCreateInfo depthStencil{};
-	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	depthStencil.depthTestEnable = VK_TRUE;
-	if (!optionalDeviceExtensions.extendedDynamicState)
-	{
-		depthStencil.depthWriteEnable = Vulkan::getBool(noDynamicStateConfiguration->depthState.write);
-		depthStencil.depthCompareOp = Vulkan::getCompareOp(noDynamicStateConfiguration->depthState.compare);
-	}
-	depthStencil.depthBoundsTestEnable = VK_FALSE;
-	depthStencil.minDepthBounds = 0.0f;
-	depthStencil.maxDepthBounds = 1.0f;
-
-	depthStencil.stencilTestEnable = VK_TRUE;
-
-	if (!optionalDeviceExtensions.extendedDynamicState)
-	{
-		depthStencil.front.failOp = VK_STENCIL_OP_KEEP;
-		depthStencil.front.passOp = Vulkan::getStencilOp(noDynamicStateConfiguration->stencilAction);
-		depthStencil.front.depthFailOp = VK_STENCIL_OP_KEEP;
-		depthStencil.front.compareOp = Vulkan::getCompareOp(getReversedCompareMode(noDynamicStateConfiguration->stencilCompare));
-
-		depthStencil.back.failOp = VK_STENCIL_OP_KEEP;
-		depthStencil.back.passOp = Vulkan::getStencilOp(noDynamicStateConfiguration->stencilAction);
-		depthStencil.back.depthFailOp = VK_STENCIL_OP_KEEP;
-		depthStencil.back.compareOp = Vulkan::getCompareOp(getReversedCompareMode(noDynamicStateConfiguration->stencilCompare));
-	}
-
-	pipelineInfo.pDepthStencilState = &depthStencil;
-
-	BlendState blendState = BlendState::fromKey(configuration.blendStateKey);
-
-	VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-	colorBlendAttachment.colorWriteMask = Vulkan::getColorMask(configuration.colorChannelMask);
-	colorBlendAttachment.blendEnable = Vulkan::getBool(blendState.enable);
-	colorBlendAttachment.srcColorBlendFactor = Vulkan::getBlendFactor(blendState.srcFactorRGB);
-	colorBlendAttachment.dstColorBlendFactor = Vulkan::getBlendFactor(blendState.dstFactorRGB);
-	colorBlendAttachment.colorBlendOp = Vulkan::getBlendOp(blendState.operationRGB);
-	colorBlendAttachment.srcAlphaBlendFactor = Vulkan::getBlendFactor(blendState.srcFactorA);
-	colorBlendAttachment.dstAlphaBlendFactor = Vulkan::getBlendFactor(blendState.dstFactorA);
-	colorBlendAttachment.alphaBlendOp = Vulkan::getBlendOp(blendState.operationA);
-
-	std::vector<VkPipelineColorBlendAttachmentState> colorBlendAttachments(configuration.numColorAttachments, colorBlendAttachment);
-
-	if (blendState.enable)
-	{
-		for (uint32 i = 0; i < configuration.numColorAttachments; i++)
-		{
-			PixelFormat format = (PixelFormat)((configuration.packedColorAttachmentFormats >> (i * 8ull)) & 0xFF);
-			if (!isPixelFormatSupported(format, PIXELFORMATUSAGEFLAGS_BLEND))
-				colorBlendAttachments[i].blendEnable = false;
-		}
-	}
-
-	VkPipelineColorBlendStateCreateInfo colorBlending{};
-	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	colorBlending.logicOpEnable = VK_FALSE;
-	colorBlending.logicOp = VK_LOGIC_OP_COPY;
-	colorBlending.attachmentCount = static_cast<uint32_t>(colorBlendAttachments.size());
-	colorBlending.pAttachments = colorBlendAttachments.data();
-	colorBlending.blendConstants[0] = 0.0f;
-	colorBlending.blendConstants[1] = 0.0f;
-	colorBlending.blendConstants[2] = 0.0f;
-	colorBlending.blendConstants[3] = 0.0f;
-
-	std::vector<VkDynamicState> dynamicStates;
-
-	if (optionalDeviceExtensions.extendedDynamicState)
-		dynamicStates = {
-			VK_DYNAMIC_STATE_SCISSOR,
-			VK_DYNAMIC_STATE_VIEWPORT,
-			VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-
-			VK_DYNAMIC_STATE_CULL_MODE_EXT,
-			VK_DYNAMIC_STATE_FRONT_FACE_EXT,
-			VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE_EXT,
-			VK_DYNAMIC_STATE_DEPTH_COMPARE_OP_EXT,
-			VK_DYNAMIC_STATE_STENCIL_OP_EXT,
-		};
-	else
-		dynamicStates = {
-			VK_DYNAMIC_STATE_SCISSOR,
-			VK_DYNAMIC_STATE_VIEWPORT,
-			VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
-			VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-		};
-
-	VkPipelineDynamicStateCreateInfo dynamicState{};
-	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-	dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-	dynamicState.pDynamicStates = dynamicStates.data();
-
-	VkPipelineRenderingCreateInfoKHR pipelineRenderingInfo{};
-	pipelineRenderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
-	pipelineRenderingInfo.colorAttachmentCount = configuration.numColorAttachments;
-	pipelineRenderingInfo.pColorAttachmentFormats = configuration.colorFormats.data();
-	pipelineRenderingInfo.depthAttachmentFormat = configuration.depthStencilFormat;
-	pipelineRenderingInfo.stencilAttachmentFormat = configuration.depthStencilFormat;
-
-	pipelineInfo.pNext = &pipelineRenderingInfo;
-	pipelineInfo.renderPass = VK_NULL_HANDLE;
-	pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
-	pipelineInfo.pStages = shaderStages.data();
-	pipelineInfo.pVertexInputState = &vertexInputInfo;
-	pipelineInfo.pInputAssemblyState = &inputAssembly;
-	pipelineInfo.pViewportState = &viewportState;
-	pipelineInfo.pRasterizationState = &rasterizer;
-	pipelineInfo.pMultisampleState = &multisampling;
-	pipelineInfo.pColorBlendState = &colorBlending;
-	pipelineInfo.pDynamicState = &dynamicState;
-	pipelineInfo.layout = shader->getGraphicsPipelineLayout();
-	pipelineInfo.subpass = 0;
-	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-	pipelineInfo.basePipelineIndex = -1;
-
-	VkPipeline graphicsPipeline;
-	VkResult result = vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineInfo, nullptr, &graphicsPipeline);
-	if (result != VK_SUCCESS)
-		throw love::Exception("Failed to create Vulkan graphics pipeline: %s", Vulkan::getErrorString(result));
-	return graphicsPipeline;
 }
 
 VkSampleCountFlagBits Graphics::getMsaaCount(int requestedMsaa) const

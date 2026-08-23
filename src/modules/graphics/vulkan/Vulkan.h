@@ -68,6 +68,7 @@ public:
 	static VkBlendOp getBlendOp(BlendOperation);
 	static VkBool32 getBool(bool);
 	static VkColorComponentFlags getColorMask(ColorChannelMask);
+	static VkColorBlendEquationEXT getColorBlendEquation(const BlendState &);
 	static VkFrontFace getFrontFace(Winding);
 	static VkCullModeFlags getCullMode(CullMode);
 	static VkImageType getImageType(TextureType);

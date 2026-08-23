@@ -661,6 +661,20 @@ VkColorComponentFlags Vulkan::getColorMask(ColorChannelMask mask)
 	return flags;
 }
 
+VkColorBlendEquationEXT Vulkan::getColorBlendEquation(const BlendState &blendState)
+{
+	VkColorBlendEquationEXT equation{};
+
+	equation.srcColorBlendFactor = Vulkan::getBlendFactor(blendState.srcFactorRGB);
+	equation.dstColorBlendFactor = Vulkan::getBlendFactor(blendState.dstFactorRGB);
+	equation.colorBlendOp = Vulkan::getBlendOp(blendState.operationRGB);
+	equation.srcAlphaBlendFactor = Vulkan::getBlendFactor(blendState.srcFactorA);
+	equation.dstAlphaBlendFactor = Vulkan::getBlendFactor(blendState.dstFactorA);
+	equation.alphaBlendOp = Vulkan::getBlendOp(blendState.operationA);
+
+	return equation;
+}
+
 VkFrontFace Vulkan::getFrontFace(Winding winding)
 {
 	switch (winding)

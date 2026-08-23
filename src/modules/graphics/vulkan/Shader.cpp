@@ -300,18 +300,15 @@ Shader::Shader(StrongRef<love::graphics::ShaderStage> stages[], const CompileOpt
 
 bool Shader::loadVolatile()
 {
-	if (!shaderModules.empty())
+	if (!shaders.empty())
 		return true;
 
 	device = vgfx->getDevice();
-
-	computePipeline = VK_NULL_HANDLE;
 
 	for (int i = 0; i < BUILTIN_MAX_ENUM; i++)
 		builtinUniformInfo[i] = nullptr;
 
 	compileShaders();
-	createDescriptorSetLayout();
 	createPipelineLayout();
 	acquireDescriptorPools();
 	newFrame(vgfx->getRealFrameIndex());
@@ -321,44 +318,25 @@ bool Shader::loadVolatile()
 
 void Shader::unloadVolatile()
 {
-	if (shaderModules.empty())
+	if (shaders.empty())
 		return;
 
 	vgfx->releaseDescriptorPools(descriptorPools);
 	descriptorPools = nullptr;
 
-	vgfx->queueCleanUp([shaderModules = std::move(shaderModules), device = device, descriptorSetLayout = descriptorSetLayout, pipelineLayout = pipelineLayout,
-		computePipeline = computePipeline,
-		graphicsPipelinesCore = std::move(graphicsPipelinesDynamicState), graphicsPipelinesFull = std::move(graphicsPipelinesNoDynamicState)]() {
-		for (const auto shaderModule : shaderModules)
-			vkDestroyShaderModule(device, shaderModule, nullptr);
+	vgfx->queueCleanUp([shaders = std::move(shaders), device = device, descriptorSetLayout = descriptorSetLayout, pipelineLayout = pipelineLayout]() {
+		for (const auto shader : shaders)
+			vkDestroyShaderEXT(device, shader, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-		if (computePipeline != VK_NULL_HANDLE)
-			vkDestroyPipeline(device, computePipeline, nullptr);
-		for (const auto &kvp : graphicsPipelinesCore)
-			vkDestroyPipeline(device, kvp.second, nullptr);
-		for (const auto &kvp : graphicsPipelinesFull)
-			vkDestroyPipeline(device, kvp.second, nullptr);
 	});
 
-	shaderModules.clear();
-	shaderStages.clear();
-}
-
-const std::vector<VkPipelineShaderStageCreateInfo> &Shader::getShaderStages() const
-{
-	return shaderStages;
+	shaders.clear();
 }
 
 const VkPipelineLayout Shader::getGraphicsPipelineLayout() const
 {
 	return pipelineLayout;
-}
-
-VkPipeline Shader::getComputePipeline() const
-{
-	return computePipeline;
 }
 
 void Shader::newFrame(uint64 graphicsFrameIndex)
@@ -653,6 +631,10 @@ void Shader::compileShaders()
 	BindingMapper ioLocationMapper(spv::DecorationLocation);
 	BindingMapper vertexInputLocationMapper(spv::DecorationLocation);
 
+	stageFlagBits.clear();
+	std::vector<std::vector<uint32_t>> spirvs;
+	std::vector<VkShaderCreateInfoEXT> shaderInfos;
+
 	for (int i = 0; i < SHADERSTAGE_MAX_ENUM; i++)
 	{
 		auto shaderStage = (ShaderStageType)i;
@@ -833,39 +815,23 @@ void Shader::compileShaders()
 			}
 		}
 
-		VkShaderModuleCreateInfo createInfo{};
-		createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-		createInfo.codeSize = spirv.size() * sizeof(uint32_t);
-		createInfo.pCode = spirv.data();
+		spirvs.push_back(spirv);
 
-		VkShaderModule shaderModule;
+		VkShaderCreateInfoEXT shaderInfo{};
+		shaderInfo.sType = VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT;
+		shaderInfo.pNext = nullptr;
+		if (shaderStage == ShaderStageType::SHADERSTAGE_VERTEX || shaderStage == ShaderStageType::SHADERSTAGE_PIXEL)
+			shaderInfo.flags = VK_SHADER_CREATE_LINK_STAGE_BIT_EXT;
+		shaderInfo.stage = getStageBit(shaderStage);
+		if (shaderStage == ShaderStageType::SHADERSTAGE_VERTEX)
+			shaderInfo.nextStage = VK_SHADER_STAGE_FRAGMENT_BIT;
+		shaderInfo.codeType = VK_SHADER_CODE_TYPE_SPIRV_EXT;
+		shaderInfo.codeSize = spirv.size() * sizeof(uint32_t);
+		shaderInfo.pCode = spirvs.back().data();
+		shaderInfo.pName = "main";
 
-		VkResult result = vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule);
-		if (result != VK_SUCCESS)
-			throw love::Exception("Failed to create Vulkan shader module: %s", Vulkan::getErrorString(result));
-
-		std::string debugname = getShaderStageDebugName(shaderStage);
-		if (!debugname.empty() && vgfx->getEnabledOptionalInstanceExtensions().debugInfo)
-		{
-			auto device = vgfx->getDevice();
-
-			VkDebugUtilsObjectNameInfoEXT nameInfo{};
-			nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
-			nameInfo.objectType = VK_OBJECT_TYPE_SHADER_MODULE;
-			nameInfo.objectHandle = (uint64_t)shaderModule;
-			nameInfo.pObjectName = debugname.c_str();
-			vkSetDebugUtilsObjectNameEXT(device, &nameInfo);
-		}
-
-		shaderModules.push_back(shaderModule);
-
-		VkPipelineShaderStageCreateInfo shaderStageInfo{};
-		shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		shaderStageInfo.stage = getStageBit((ShaderStageType)i);
-		shaderStageInfo.module = shaderModule;
-		shaderStageInfo.pName = "main";
-
-		shaderStages.push_back(shaderStageInfo);
+		shaderInfos.push_back(shaderInfo);
+		stageFlagBits.push_back(getStageBit(shaderStage));
 	}
 
 	int numBuffers = 0;
@@ -1053,6 +1019,20 @@ void Shader::compileShaders()
 	}
 
 	resourceDescriptorsDirty = true;
+
+	createDescriptorSetLayout();
+
+	for (auto &shaderInfo : shaderInfos)
+	{
+		shaderInfo.setLayoutCount = 1;
+		shaderInfo.pSetLayouts = &descriptorSetLayout;
+	}
+
+	shaders.clear();
+	shaders.resize(shaderInfos.size());
+	VkResult result = vkCreateShadersEXT(device, shaderInfos.size(), shaderInfos.data(), nullptr, shaders.data());
+	if (result != VK_SUCCESS)
+		throw love::Exception("Failed to create Vulkan Shader objects: %s", Vulkan::getErrorString(result));
 }
 
 void Shader::createDescriptorSetLayout()
@@ -1112,20 +1092,6 @@ void Shader::createPipelineLayout()
 	VkResult result = vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout);
 	if (result != VK_SUCCESS)
 		throw love::Exception("Failed to create Vulkan pipeline layout: %s", Vulkan::getErrorString(result));
-
-	if (isCompute)
-	{
-		assert(shaderStages.size() == 1);
-
-		VkComputePipelineCreateInfo computeInfo{};
-		computeInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-		computeInfo.stage = shaderStages.at(0);
-		computeInfo.layout = pipelineLayout;
-
-		result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &computeInfo, nullptr, &computePipeline);
-		if (result != VK_SUCCESS)
-			throw love::Exception("Failed to create Vulkan compute pipeline: %s", Vulkan::getErrorString(result));
-	}
 }
 
 static int getDescriptorPoolSize(const std::map<std::string, Shader::UniformInfo> &uniforms)
@@ -1215,28 +1181,9 @@ void Shader::setBufferDescriptor(const UniformInfo *info, love::graphics::Buffer
 	}
 }
 
-VkPipeline Shader::getCachedGraphicsPipeline(Graphics *vgfx, const GraphicsPipelineConfigurationCore &configuration)
+void Shader::cmdBindShader(VkCommandBuffer commandBuffer)
 {
-	auto it = graphicsPipelinesDynamicState.find(configuration);
-	if (it != graphicsPipelinesDynamicState.end())
-		return it->second;
-
-	VkPipeline pipeline = vgfx->createGraphicsPipeline(this, configuration, nullptr);
-	graphicsPipelinesDynamicState.insert({ configuration, pipeline });
-	
-	return pipeline;
-}
-
-VkPipeline Shader::getCachedGraphicsPipeline(Graphics *vgfx, const GraphicsPipelineConfigurationFull &configuration)
-{
-	auto it = graphicsPipelinesNoDynamicState.find(configuration);
-	if (it != graphicsPipelinesNoDynamicState.end())
-		return it->second;
-
-	VkPipeline pipeline = vgfx->createGraphicsPipeline(this, configuration.core, &configuration.noDynamicState);
-	graphicsPipelinesNoDynamicState.insert({ configuration, pipeline });
-	
-	return pipeline;
+	vkCmdBindShadersEXT(commandBuffer, stageFlagBits.size(), stageFlagBits.data(), shaders.data());
 }
 
 } // vulkan
