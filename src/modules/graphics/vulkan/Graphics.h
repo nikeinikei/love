@@ -269,6 +269,8 @@ private:
 	void startRenderPass();
 	void endRenderPass();
 	void applyScissor();
+	void applyColorBlend();
+	void applyColorMask();
 	VkSampler createSampler(const SamplerState &sampler);
 	void requestSwapchainRecreation();
 

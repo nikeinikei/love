@@ -917,29 +917,18 @@ void Graphics::setColorMask(ColorChannelMask mask)
 {
 	flushBatchedDraws();
 
-	VkColorComponentFlags flags = Vulkan::getColorMask(mask);
-	std::vector<VkColorComponentFlags> colorWriteMasks(renderPassState.colorAttachments.size(), flags);
-
-	vkCmdSetColorWriteMaskEXT(commandBuffers.at(currentFrame), 0, colorWriteMasks.size(), colorWriteMasks.data());
-
 	states.back().colorMask = mask;
+
+	applyColorMask();
 }
 
 void Graphics::setBlendState(const BlendState &blend)
 {
 	flushBatchedDraws();
 
-	std::vector<VkBool32> enables(renderPassState.colorAttachments.size(), Vulkan::getBool(blend.enable));
-
-	vkCmdSetColorBlendEnableEXT(commandBuffers.at(currentFrame), 0, enables.size(), enables.data());
-
-	VkColorBlendEquationEXT colorBlendEquation = Vulkan::getColorBlendEquation(blend);
-
-	std::vector<VkColorBlendEquationEXT> equations(renderPassState.colorAttachments.size(), colorBlendEquation);
-
-	vkCmdSetColorBlendEquationEXT(commandBuffers.at(currentFrame), 0, equations.size(), equations.data());
-
 	states.back().blend = blend;
+
+	applyColorBlend();
 }
 
 void Graphics::setPointSize(float size)
@@ -1088,6 +1077,28 @@ void Graphics::setColor(Colorf c)
 	c.a = std::min(std::max(c.a, 0.0f), 1.0f);
 
 	states.back().color = c;
+}
+
+void Graphics::applyColorMask()
+{
+	VkColorComponentFlags flags = Vulkan::getColorMask(states.back().colorMask);
+	std::vector<VkColorComponentFlags> colorWriteMasks(renderPassState.colorAttachments.size(), flags);
+
+	vkCmdSetColorWriteMaskEXT(commandBuffers.at(currentFrame), 0, colorWriteMasks.size(), colorWriteMasks.data());
+}
+
+void Graphics::applyColorBlend()
+{
+	const auto &blend = states.back().blend;
+	std::vector<VkBool32> enables(renderPassState.colorAttachments.size(), Vulkan::getBool(blend.enable));
+
+	vkCmdSetColorBlendEnableEXT(commandBuffers.at(currentFrame), 0, enables.size(), enables.data());
+
+	VkColorBlendEquationEXT colorBlendEquation = Vulkan::getColorBlendEquation(blend);
+
+	std::vector<VkColorBlendEquationEXT> equations(renderPassState.colorAttachments.size(), colorBlendEquation);
+
+	vkCmdSetColorBlendEquationEXT(commandBuffers.at(currentFrame), 0, equations.size(), equations.data());
 }
 
 void Graphics::applyScissor()
@@ -2812,24 +2823,11 @@ void Graphics::startRenderPass()
 
 	vkCmdBeginRendering(commandBuffers.at(currentFrame), &renderPassState.renderingInfo);
 
-	// todo: clean this up.
-	VkColorComponentFlags flags = Vulkan::getColorMask(states.back().colorMask);
-	std::vector<VkColorComponentFlags> colorWriteMasks(renderPassState.colorAttachments.size(), flags);
-
-	vkCmdSetColorWriteMaskEXT(commandBuffers.at(currentFrame), 0, colorWriteMasks.size(), colorWriteMasks.data());
-
-	const auto &blend = states.back().blend;
-	std::vector<VkBool32> enables(renderPassState.colorAttachments.size(), Vulkan::getBool(blend.enable));
-
-	vkCmdSetColorBlendEnableEXT(commandBuffers.at(currentFrame), 0, enables.size(), enables.data());
-
-	VkColorBlendEquationEXT colorBlendEquation = Vulkan::getColorBlendEquation(blend);
-
-	std::vector<VkColorBlendEquationEXT> equations(renderPassState.colorAttachments.size(), colorBlendEquation);
-
-	vkCmdSetColorBlendEquationEXT(commandBuffers.at(currentFrame), 0, equations.size(), equations.data());
-
 	applyScissor();
+
+	applyColorMask();
+
+	applyColorBlend();
 }
 
 void Graphics::endRenderPass()
