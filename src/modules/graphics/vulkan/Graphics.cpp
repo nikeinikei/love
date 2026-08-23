@@ -60,6 +60,7 @@ static const std::vector<const char*> validationLayers = {
 
 static const std::vector<const char*> deviceExtensions = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
 };
 
 constexpr int DEFAULT_VERTEX_BUFFER_BINDING = 0;
@@ -326,8 +327,8 @@ void Graphics::clear(const std::vector<OptionalColorD> &colors, OptionalInt sten
 
 		VkClearRect rect{};
 		rect.layerCount = 1;
-		rect.rect.extent.width = static_cast<uint32_t>(renderPassState.width);
-		rect.rect.extent.height = static_cast<uint32_t>(renderPassState.height);
+		rect.rect.extent.width = static_cast<uint32_t>(renderPassState.renderingInfo.renderArea.extent.width);
+		rect.rect.extent.height = static_cast<uint32_t>(renderPassState.renderingInfo.renderArea.extent.height);
 
 		vkCmdClearAttachments(
 			commandBuffers[currentFrame],
@@ -340,23 +341,23 @@ void Graphics::clear(const std::vector<OptionalColorD> &colors, OptionalInt sten
 		{
 			if (colors[i].hasValue)
 			{
-				renderPassState.renderPassConfiguration.colorAttachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+				renderPassState.colorAttachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 
 				auto texture = i < rts.colors.size() ? rts.colors[i].texture.get() : nullptr;
-				renderPassState.clearColors[i].color = Texture::getClearColor(texture, colors[i].value);
+				renderPassState.colorAttachments[i].clearValue.color = Texture::getClearColor(texture, colors[i].value);
 			}
 		}
 
 		if (depth.hasValue)
 		{
-			renderPassState.renderPassConfiguration.staticData.depthStencilAttachment.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			renderPassState.clearColors[ncolorbuffers].depthStencil.depth = static_cast<float>(depth.value);
+			renderPassState.depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			renderPassState.depthAttachment.clearValue.depthStencil.depth = static_cast<float>(depth.value);
 		}
 
 		if (stencil.hasValue)
 		{
-			renderPassState.renderPassConfiguration.staticData.depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			renderPassState.clearColors[ncolorbuffers].depthStencil.stencil = static_cast<uint32_t>(stencil.value);
+			renderPassState.depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			renderPassState.stencilAttachment.clearValue.depthStencil.stencil = static_cast<float>(depth.value);
 		}
 
 		if (renderPassState.isWindow)
@@ -376,18 +377,16 @@ void Graphics::discard(const std::vector<bool> &colorbuffers, bool depthstencil)
 	if (renderPassState.active)
 		endRenderPass();
 
-	auto &renderPassConfiguration = renderPassState.renderPassConfiguration;
-
 	for (size_t i = 0; i < colorbuffers.size(); i++)
 	{
 		if (colorbuffers[i])
-			renderPassConfiguration.colorAttachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			renderPassState.colorAttachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	}
 
 	if (depthstencil)
 	{
-		renderPassConfiguration.staticData.depthStencilAttachment.depthLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		renderPassConfiguration.staticData.depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		renderPassState.depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		renderPassState.stencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	}
 
 	startRenderPass();
@@ -1083,8 +1082,8 @@ void Graphics::applyScissor()
 	VkRect2D scissor{};
 
 	bool win = renderPassState.isWindow;
-	scissor.extent.width = win ? swapChainExtent.width : renderPassState.width;
-	scissor.extent.height = win ? swapChainExtent.height : renderPassState.height;
+	scissor.extent.width = win ? swapChainExtent.width : renderPassState.renderingInfo.renderArea.extent.width;
+	scissor.extent.height = win ? swapChainExtent.height : renderPassState.renderingInfo.renderArea.extent.height;
 
 	if (states.back().scissor)
 	{
@@ -1955,7 +1954,7 @@ void Graphics::createLogicalDevice()
 	createInfo.pQueueCreateInfos = queueCreateInfos.data();
 	createInfo.pEnabledFeatures = &enabledDeviceFeatures;
 
-	std::vector<const char*> enabledExtensions(deviceExtensions.begin(), deviceExtensions.end());
+	std::vector<const char *> enabledExtensions(deviceExtensions.begin(), deviceExtensions.end());
 	if (optionalDeviceExtensions.extendedDynamicState)
 		enabledExtensions.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
 	if (optionalDeviceExtensions.memoryRequirements2)
@@ -1989,8 +1988,14 @@ void Graphics::createLogicalDevice()
 	extendedDynamicStateFeatures.extendedDynamicState = VK_TRUE;
 	extendedDynamicStateFeatures.pNext = nullptr;
 
+	VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures{};
+	dynamicRenderingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+	dynamicRenderingFeatures.dynamicRendering = VK_TRUE;
+
 	if (optionalDeviceExtensions.extendedDynamicState)
-		createInfo.pNext = &extendedDynamicStateFeatures;
+		dynamicRenderingFeatures.pNext = &extendedDynamicStateFeatures;
+
+	createInfo.pNext = &dynamicRenderingFeatures;
 
 	VkResult result = vkCreateDevice(physicalDevice, &createInfo, nullptr, &device);
 	if (result != VK_SUCCESS)
@@ -2385,102 +2390,6 @@ void Graphics::createImageViews()
 	}
 }
 
-VkFramebuffer Graphics::createFramebuffer(FramebufferConfiguration &configuration)
-{
-	std::vector<VkImageView> attachments;
-
-	for (const auto &colorView : configuration.colorViews)
-		attachments.push_back(colorView);
-
-	if (configuration.staticData.depthView)
-		attachments.push_back(configuration.staticData.depthView);
-
-	// Resolve attachments after everything else to match createRenderPass.
-	for (const auto &colorResolveView : configuration.colorResolveViews)
-		attachments.push_back(colorResolveView);
-
-	VkFramebufferCreateInfo createInfo{};
-	createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-	createInfo.renderPass = configuration.staticData.renderPass;
-	createInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-	createInfo.pAttachments = attachments.data();
-	createInfo.width = configuration.staticData.width;
-	createInfo.height = configuration.staticData.height;
-	createInfo.layers = 1;
-
-	VkFramebuffer frameBuffer;
-	VkResult result = vkCreateFramebuffer(device, &createInfo, nullptr, &frameBuffer);
-	if (result != VK_SUCCESS)
-		throw love::Exception("Failed to create Vulkan framebuffer: %s", Vulkan::getErrorString(result));
-	return frameBuffer;
-}
-
-VkFramebuffer Graphics::getFramebuffer(FramebufferConfiguration &configuration)
-{
-	VkFramebuffer framebuffer;
-
-	auto it = framebuffers.find(configuration);
-	if (it != framebuffers.end())
-		framebuffer = it->second;
-	else
-	{
-		framebuffer = createFramebuffer(configuration);
-		framebuffers[configuration] = framebuffer;
-	}
-
-	framebufferUsages[framebuffer] = true;
-
-	return framebuffer;
-}
-
-void Graphics::cleanupFramebuffers(VkImageView imageView, PixelFormat format)
-{
-	bool depthstencil = isPixelFormatDepthStencil(format);
-
-	for (auto it = framebuffers.begin(); it != framebuffers.end();)
-	{
-		bool foundView = false;
-
-		if (depthstencil)
-		{
-			if (it->first.staticData.depthView == imageView)
-				foundView = true;
-		}
-		else
-		{
-			for (VkImageView view : it->first.colorViews)
-			{
-				if (view == imageView)
-				{
-					foundView = true;
-					break;
-				}
-			}
-			if (!foundView)
-			{
-				for (VkImageView view : it->first.colorResolveViews)
-				{
-					if (view == imageView)
-					{
-						foundView = true;
-						break;
-					}
-				}
-			}
-		}
-
-		if (foundView)
-		{
-			vkDestroyFramebuffer(device, it->second, nullptr);
-			it = framebuffers.erase(it);
-		}
-		else
-		{
-			++it;
-		}
-	}
-}
-
 void Graphics::createDefaultShaders()
 {
 	for (int i = 0; i < Shader::STANDARD_MAX_ENUM; i++)
@@ -2495,169 +2404,6 @@ void Graphics::createDefaultShaders()
 			Shader::standardShaders[i] = newShader(stages, {});
 		}
 	}
-}
-
-VkRenderPass Graphics::createRenderPass(RenderPassConfiguration &configuration)
-{
-	VkSubpassDescription subPass{};
-	subPass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-
-	VkSubpassDependency beginDependency{};
-	beginDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-	beginDependency.dstSubpass = 0;
-	beginDependency.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-	beginDependency.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	beginDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-		| VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-	beginDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
-		| VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
-	VkSubpassDependency endDependency{};
-	endDependency.srcSubpass = 0;
-	endDependency.dstSubpass = VK_SUBPASS_EXTERNAL;
-	endDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-	endDependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
-		| VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-	endDependency.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-	endDependency.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-
-	std::vector<VkAttachmentDescription> attachments;
-	std::vector<VkAttachmentReference> colorAttachmentRefs;
-	std::vector<VkAttachmentReference> colorResolveAttachmentRefs;
-
-	uint32_t attachment = 0;
-	for (const auto &colorAttachment : configuration.colorAttachments)
-	{
-		VkAttachmentReference reference{};
-		reference.attachment = attachment++;
-		reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		colorAttachmentRefs.push_back(reference);
-
-		VkAttachmentDescription colorDescription{};
-		colorDescription.format = colorAttachment.format;
-		colorDescription.samples = colorAttachment.msaaSamples;
-		colorDescription.loadOp = colorAttachment.loadOp;
-		colorDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		colorDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		colorDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		if (colorAttachment.msaaSamples > 1)
-		{
-			colorDescription.initialLayout = colorAttachment.msaaLayout;
-			colorDescription.finalLayout = colorAttachment.msaaLayout;
-		}
-		else
-		{
-			colorDescription.initialLayout = colorAttachment.layout;
-			colorDescription.finalLayout = colorAttachment.layout;
-		}
-		attachments.push_back(colorDescription);
-
-		// I had a TODO here, but I don't remember why...
-		if (colorAttachment.layout != VK_IMAGE_LAYOUT_UNDEFINED)
-		{
-			Vulkan::addImageLayoutTransitionOptions(true, true, false, colorAttachment.layout, beginDependency.srcAccessMask, beginDependency.srcStageMask);
-			Vulkan::addImageLayoutTransitionOptions(false, true, false, colorAttachment.layout, endDependency.dstAccessMask, endDependency.dstStageMask);
-		}
-
-		if (colorAttachment.msaaLayout != VK_IMAGE_LAYOUT_UNDEFINED)
-		{
-			Vulkan::addImageLayoutTransitionOptions(true, true, false, colorAttachment.msaaLayout, beginDependency.srcAccessMask, beginDependency.srcStageMask);
-			Vulkan::addImageLayoutTransitionOptions(false, true, false, colorAttachment.msaaLayout, endDependency.dstAccessMask, endDependency.dstStageMask);
-		}
-	}
-
-	subPass.colorAttachmentCount = static_cast<uint32_t>(configuration.colorAttachments.size());
-	subPass.pColorAttachments = colorAttachmentRefs.data();
-
-	VkAttachmentReference depthStencilAttachmentRef{};
-	if (configuration.staticData.depthStencilAttachment.format != VK_FORMAT_UNDEFINED)
-	{
-		depthStencilAttachmentRef.attachment = attachment++;
-		depthStencilAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		subPass.pDepthStencilAttachment = &depthStencilAttachmentRef;
-
-		VkAttachmentDescription depthStencilAttachment{};
-		depthStencilAttachment.format = configuration.staticData.depthStencilAttachment.format;
-		depthStencilAttachment.samples = configuration.staticData.depthStencilAttachment.msaaSamples;
-		depthStencilAttachment.loadOp = configuration.staticData.depthStencilAttachment.depthLoadOp;
-		depthStencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		depthStencilAttachment.stencilLoadOp = configuration.staticData.depthStencilAttachment.stencilLoadOp;
-		depthStencilAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-		depthStencilAttachment.initialLayout = configuration.staticData.depthStencilAttachment.layout;
-		depthStencilAttachment.finalLayout = configuration.staticData.depthStencilAttachment.layout;
-		attachments.push_back(depthStencilAttachment);
-
-		Vulkan::addImageLayoutTransitionOptions(true, true, true, configuration.staticData.depthStencilAttachment.layout, beginDependency.srcAccessMask, beginDependency.srcStageMask);
-		Vulkan::addImageLayoutTransitionOptions(false, true, true, configuration.staticData.depthStencilAttachment.layout, endDependency.dstAccessMask, endDependency.dstStageMask);
-	}
-
-	// Add resolve attachments after everything else to make pClearValues simpler to implement.
-	if (configuration.staticData.resolve)
-	{
-		for (const auto &colorAttachment : configuration.colorAttachments)
-		{
-			VkAttachmentReference reference{};
-			reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-			if (colorAttachment.layout == VK_IMAGE_LAYOUT_UNDEFINED)
-			{
-				reference.attachment = VK_ATTACHMENT_UNUSED;
-				colorResolveAttachmentRefs.push_back(reference);
-			}
-			else
-			{
-				reference.attachment = attachment++;
-				colorResolveAttachmentRefs.push_back(reference);
-
-				VkAttachmentDescription resolveDescription{};
-				resolveDescription.format = colorAttachment.format;
-				resolveDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-				resolveDescription.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-				resolveDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-				resolveDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-				resolveDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-				resolveDescription.initialLayout = colorAttachment.layout;
-				resolveDescription.finalLayout = colorAttachment.layout;
-
-				attachments.push_back(resolveDescription);
-			}
-		}
-
-		subPass.pResolveAttachments = colorResolveAttachmentRefs.data();
-	}
-
-	std::array<VkSubpassDependency, 2> dependencies = { beginDependency, endDependency };
-
-	VkRenderPassCreateInfo createInfo{};
-	createInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	createInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-	createInfo.pAttachments = attachments.data();
-	createInfo.subpassCount = 1;
-	createInfo.pSubpasses = &subPass;
-	createInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
-	createInfo.pDependencies = dependencies.data();
-
-	VkRenderPass renderPass;
-	VkResult result = vkCreateRenderPass(device, &createInfo, nullptr, &renderPass);
-	if (result != VK_SUCCESS)
-		throw love::Exception("Failed to create Vulkan render pass: %s", Vulkan::getErrorString(result));
-
-	return renderPass;
-}
-
-VkRenderPass Graphics::getRenderPass(RenderPassConfiguration &configuration)
-{
-	VkRenderPass renderPass;
-	auto it = renderPasses.find(configuration);
-	if (it != renderPasses.end())
-		renderPass = it->second;
-	else
-	{
-		renderPass = createRenderPass(configuration);
-		renderPasses[configuration] = renderPass;
-	}
-
-	return renderPass;
 }
 
 void Graphics::createVulkanVertexFormat(
@@ -2752,13 +2498,16 @@ void Graphics::prepareDraw(VertexAttributesID attributesID, const BufferBindings
 
 	GraphicsPipelineConfigurationFull configuration{};
 
-	configuration.core.renderPass = renderPassState.beginInfo.renderPass;
+	for (size_t i = 0; i < renderPassState.colorFormats.size(); i++)
+		configuration.core.colorFormats[i] = renderPassState.colorFormats[i];
+
+	configuration.core.depthStencilFormat = depthStencilFormat;
 	configuration.core.attributesID = attributesID;
 	configuration.core.wireFrame = states.back().wireframe && optionalDeviceFeatures.fillModeNonSolid;
 	configuration.core.blendStateKey = states.back().blend.toKey();
 	configuration.core.colorChannelMask = states.back().colorMask;
 	configuration.core.msaaSamples = renderPassState.msaa;
-	configuration.core.numColorAttachments = renderPassState.numColorAttachments;
+	configuration.core.numColorAttachments = renderPassState.colorFormats.size();
 	configuration.core.packedColorAttachmentFormats = renderPassState.packedColorAttachmentFormats;
 	configuration.core.primitiveType = primitiveType;
 
@@ -2844,61 +2593,69 @@ void Graphics::tryBarrier(VkAccessFlags dstAccessMask, VkPipelineStageFlags dstS
 
 void Graphics::setDefaultRenderPass()
 {
-	uint32_t numClearValues = 2;
-	renderPassState.clearColors.resize(numClearValues);
+	renderPassState.depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	renderPassState.depthAttachment.pNext = VK_NULL_HANDLE;
+	renderPassState.depthAttachment.imageView = depthImageView;
+	renderPassState.depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	renderPassState.depthAttachment.resolveMode = VK_RESOLVE_MODE_NONE;
+	renderPassState.depthAttachment.resolveImageView = VK_NULL_HANDLE;
+	renderPassState.depthAttachment.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	renderPassState.depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-	renderPassState.beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassState.beginInfo.renderPass = VK_NULL_HANDLE;
-	renderPassState.beginInfo.framebuffer = VK_NULL_HANDLE;
-	renderPassState.beginInfo.renderArea.offset = { 0, 0 };
-	renderPassState.beginInfo.renderArea.extent = swapChainExtent;
-	renderPassState.beginInfo.clearValueCount = numClearValues;
-	renderPassState.beginInfo.pClearValues = renderPassState.clearColors.data();
+	renderPassState.stencilAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	renderPassState.stencilAttachment.pNext = VK_NULL_HANDLE;
+	renderPassState.stencilAttachment.imageView = depthImageView;
+	renderPassState.stencilAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	renderPassState.stencilAttachment.resolveMode = VK_RESOLVE_MODE_NONE;
+	renderPassState.stencilAttachment.resolveImageView = VK_NULL_HANDLE;
+	renderPassState.stencilAttachment.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	renderPassState.stencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+	renderPassState.colorAttachments.resize(1);
+	if (msaaSamples & VK_SAMPLE_COUNT_1_BIT)
+	{
+		renderPassState.colorAttachments[0].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		renderPassState.colorAttachments[0].pNext = VK_NULL_HANDLE;
+		if (!swapChainImageViews.empty())
+			renderPassState.colorAttachments[0].imageView = swapChainImageViews.at(imageIndex);
+		else
+			renderPassState.colorAttachments[0].imageView = fakeBackbuffer->getRenderTargetView(0, 0);
+		renderPassState.colorAttachments[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		renderPassState.colorAttachments[0].resolveMode = VK_RESOLVE_MODE_NONE;
+		renderPassState.colorAttachments[0].resolveImageView = VK_NULL_HANDLE;
+		renderPassState.colorAttachments[0].resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		renderPassState.colorAttachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	}
+	else
+	{
+		renderPassState.colorAttachments[0].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		renderPassState.colorAttachments[0].pNext = VK_NULL_HANDLE;
+		renderPassState.colorAttachments[0].imageView = colorImageView;
+		renderPassState.colorAttachments[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		renderPassState.colorAttachments[0].resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+		if (!swapChainImageViews.empty())
+			renderPassState.colorAttachments[0].resolveImageView = swapChainImageViews.at(imageIndex);
+		else
+			renderPassState.colorAttachments[0].imageView = fakeBackbuffer->getRenderTargetView(0, 0);
+		renderPassState.colorAttachments[0].resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		renderPassState.colorAttachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	}
+	renderPassState.colorFormats.clear();
+	renderPassState.colorFormats.push_back(swapChainImageFormat);
+
+	renderPassState.renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	renderPassState.renderingInfo.renderArea.offset = { 0, 0 };
+	renderPassState.renderingInfo.renderArea.extent = swapChainExtent;
+	renderPassState.renderingInfo.colorAttachmentCount = renderPassState.colorAttachments.size();
+	renderPassState.renderingInfo.pColorAttachments = renderPassState.colorAttachments.data();
+	renderPassState.renderingInfo.layerCount = 1;
+	renderPassState.renderingInfo.pDepthAttachment = &renderPassState.depthAttachment;
+	renderPassState.renderingInfo.pStencilAttachment = &renderPassState.stencilAttachment;
 
 	renderPassState.isWindow = true;
 	renderPassState.pipeline = VK_NULL_HANDLE;
-	renderPassState.width = static_cast<float>(swapChainExtent.width);
-	renderPassState.height = static_cast<float>(swapChainExtent.height);
 	renderPassState.msaa = msaaSamples;
-	renderPassState.numColorAttachments = 1;
 	renderPassState.packedColorAttachmentFormats = (uint8)swapChainPixelFormat;
-
-	RenderPassConfiguration renderPassConfiguration{};
-
-	VkFormat dsformat = backbufferSettings.depth || backbufferSettings.stencil ? depthStencilFormat : VK_FORMAT_UNDEFINED;
-	renderPassConfiguration.staticData.depthStencilAttachment = { dsformat, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_LOAD_OP_LOAD, msaaSamples };
-	if (msaaSamples & VK_SAMPLE_COUNT_1_BIT)
-		renderPassConfiguration.staticData.resolve = false;
-	else
-		renderPassConfiguration.staticData.resolve = true;
-
-	FramebufferConfiguration framebufferConfiguration{};
-	framebufferConfiguration.staticData.depthView = depthImageView;
-	framebufferConfiguration.staticData.width = swapChainExtent.width;
-	framebufferConfiguration.staticData.height = swapChainExtent.height;
-
-	if (msaaSamples & VK_SAMPLE_COUNT_1_BIT)
-	{
-		renderPassConfiguration.colorAttachments.push_back({ swapChainImageFormat, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_UNDEFINED, VK_ATTACHMENT_LOAD_OP_LOAD, msaaSamples });
-
-		if (!swapChainImageViews.empty())
-			framebufferConfiguration.colorViews.push_back(swapChainImageViews.at(imageIndex));
-		else
-			framebufferConfiguration.colorViews.push_back(fakeBackbuffer->getRenderTargetView(0, 0));
-	}
-	else
-	{
-		renderPassConfiguration.colorAttachments.push_back({ swapChainImageFormat, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ATTACHMENT_LOAD_OP_LOAD, msaaSamples });
-
-		framebufferConfiguration.colorViews.push_back(colorImageView);
-		if (!swapChainImageViews.empty())
-			framebufferConfiguration.colorResolveViews.push_back(swapChainImageViews.at(imageIndex));
-		else
-			framebufferConfiguration.colorResolveViews.push_back(fakeBackbuffer->getRenderTargetView(0, 0));
-	}
-
-	renderPassState.renderPassConfiguration = std::move(renderPassConfiguration);
-	renderPassState.framebufferConfiguration = std::move(framebufferConfiguration);
 
 	// Can't call clear() here because it depends on current RT state, which might not be
 	// set yet when this is called from within setRenderTargetsInternal.
@@ -2906,105 +2663,106 @@ void Graphics::setDefaultRenderPass()
 	{
 		if (renderPassState.mainWindowClearColorValue.hasValue)
 		{
-			renderPassState.renderPassConfiguration.colorAttachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			renderPassState.clearColors[0].color = Texture::getClearColor(nullptr, renderPassState.mainWindowClearColorValue.value);
+			renderPassState.colorAttachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			renderPassState.colorAttachments[0].clearValue.color = Texture::getClearColor(nullptr, renderPassState.mainWindowClearColorValue.value);
 		}
 
 		if (renderPassState.mainWindowClearDepthValue.hasValue && backbufferSettings.depth)
 		{
-			renderPassState.renderPassConfiguration.staticData.depthStencilAttachment.depthLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			renderPassState.clearColors[1].depthStencil.depth = static_cast<float>(renderPassState.mainWindowClearDepthValue.value);
+			renderPassState.depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			renderPassState.depthAttachment.clearValue.depthStencil.depth = static_cast<float>(renderPassState.mainWindowClearDepthValue.value);
 		}
 
 		if (renderPassState.mainWindowClearStencilValue.hasValue && backbufferSettings.stencil)
 		{
-			renderPassState.renderPassConfiguration.staticData.depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			renderPassState.clearColors[1].depthStencil.stencil = static_cast<uint32_t>(renderPassState.mainWindowClearStencilValue.value);
+			renderPassState.stencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			renderPassState.stencilAttachment.clearValue.depthStencil.stencil = static_cast<uint32_t>(renderPassState.mainWindowClearStencilValue.value);
 		}
 	}
 }
 
 void Graphics::setRenderPass(const RenderTargets &rts, int pixelw, int pixelh)
 {
-	RenderPassConfiguration renderPassConfiguration{};
-	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
+	renderPassState.renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	renderPassState.renderingInfo.pNext = nullptr;
+	renderPassState.renderingInfo.renderArea.offset = {0, 0};
+	renderPassState.renderingInfo.renderArea.extent.width = static_cast<uint32_t>(pixelw);
+	renderPassState.renderingInfo.renderArea.extent.height = static_cast<uint32_t>(pixelh);
+	renderPassState.renderingInfo.layerCount = 1;
+	renderPassState.renderingInfo.viewMask = 0;
+	renderPassState.renderingInfo.flags = 0;
 
-	for (const auto &color : rts.colors)
+	renderPassState.colorAttachments.clear();
+	renderPassState.colorAttachments.resize(rts.colors.size());
+			
+	renderPassState.colorFormats.clear();
+	renderPassState.colorFormats.resize(rts.colors.size());
+	for (size_t i = 0; i < rts.colors.size(); i++)
 	{
-		auto tex = (Texture *)color.texture;
-		renderPassConfiguration.colorAttachments.push_back({ 
-			Vulkan::getTextureFormat(tex->getPixelFormat()).internalFormat,
-			tex->getImageLayout(),
-			tex->getMSAAImageLayout(),
-			VK_ATTACHMENT_LOAD_OP_LOAD,
-			tex->getMsaaSamples() });
+		auto tex = (Texture *)rts.colors[i].texture;
 
-		if (tex->getMSAAImageLayout() != VK_IMAGE_LAYOUT_UNDEFINED && tex->getImageLayout() != VK_IMAGE_LAYOUT_UNDEFINED)
-			renderPassConfiguration.staticData.resolve = true;
+		renderPassState.colorAttachments[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		renderPassState.colorAttachments[i].pNext = nullptr;
+		renderPassState.colorAttachments[i].imageView = tex->getRenderTargetView(rts.colors.at(i).mipmap, rts.colors.at(i).slice);
+		renderPassState.colorAttachments[i].imageLayout = tex->getImageLayout();
+		renderPassState.colorAttachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		renderPassState.colorAttachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		renderPassState.colorAttachments[i].resolveMode = VK_RESOLVE_MODE_NONE;
+		renderPassState.colorAttachments[i].resolveImageView = VK_NULL_HANDLE;
+		renderPassState.colorAttachments[i].resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		renderPassState.colorAttachments[i].clearValue = {};
 
-		msaa = tex->getMsaaSamples();
+		renderPassState.colorFormats[i] = Vulkan::getTextureFormat(tex->getPixelFormat()).internalFormat;
 	}
 
-	if (rts.depthStencil.texture != nullptr)
-	{
-		auto tex = (Texture *)rts.depthStencil.texture;
-		renderPassConfiguration.staticData.depthStencilAttachment = {
-			Vulkan::getTextureFormat(rts.depthStencil.texture->getPixelFormat()).internalFormat,
-			tex->getImageLayout(),
-			VK_ATTACHMENT_LOAD_OP_LOAD,
-			VK_ATTACHMENT_LOAD_OP_LOAD,
-			tex->getMsaaSamples() };
-
-		msaa = tex->getMsaaSamples();
-	}
-
-	FramebufferConfiguration configuration{};
-
-	for (const auto &color : rts.colors)
-	{
-		auto tex = (Texture*)color.texture;
-		if (tex->getMSAA() > 1)
-		{
-			configuration.colorViews.push_back(tex->getMSAARenderTargetView(color.mipmap, color.slice));
-			configuration.colorResolveViews.push_back(tex->getRenderTargetView(color.mipmap, color.slice));
-		}
-		else
-		{
-			configuration.colorViews.push_back(tex->getRenderTargetView(color.mipmap, color.slice));
-		}
-	}
 	if (rts.depthStencil.texture != nullptr)
 	{
 		auto tex = (Texture*)rts.depthStencil.texture;
-		if (tex->getMSAA() > 1)
-			configuration.staticData.depthView = tex->getMSAARenderTargetView(rts.depthStencil.mipmap, rts.depthStencil.slice);
-		else
-			configuration.staticData.depthView = tex->getRenderTargetView(rts.depthStencil.mipmap, rts.depthStencil.slice);
+
+		renderPassState.depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		renderPassState.depthAttachment.pNext = nullptr;
+		renderPassState.depthAttachment.imageView = tex->getRenderTargetView(rts.depthStencil.mipmap, rts.depthStencil.slice);
+		renderPassState.depthAttachment.imageLayout = tex->getImageLayout();
+		renderPassState.depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		renderPassState.depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		renderPassState.depthAttachment.resolveMode = VK_RESOLVE_MODE_NONE;
+		renderPassState.depthAttachment.resolveImageView = VK_NULL_HANDLE;
+		renderPassState.depthAttachment.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		renderPassState.depthAttachment.clearValue = {};
+
+		renderPassState.stencilAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		renderPassState.stencilAttachment.pNext = nullptr;
+		renderPassState.stencilAttachment.imageView = tex->getRenderTargetView(rts.depthStencil.mipmap, rts.depthStencil.slice);
+		renderPassState.stencilAttachment.imageLayout = tex->getImageLayout();
+		renderPassState.stencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		renderPassState.stencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		renderPassState.stencilAttachment.resolveMode = VK_RESOLVE_MODE_NONE;
+		renderPassState.stencilAttachment.resolveImageView = VK_NULL_HANDLE;
+		renderPassState.stencilAttachment.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		renderPassState.stencilAttachment.clearValue = {};
+
+		renderPassState.renderingInfo.pDepthAttachment = &renderPassState.depthAttachment;
+		renderPassState.renderingInfo.pStencilAttachment = &renderPassState.stencilAttachment;
+	}
+	else
+	{
+		renderPassState.renderingInfo.pDepthAttachment = nullptr;
+		renderPassState.renderingInfo.pStencilAttachment = nullptr;
 	}
 
-	configuration.staticData.width = static_cast<uint32_t>(pixelw);
-	configuration.staticData.height = static_cast<uint32_t>(pixelh);
-
-	uint32_t numClearValues = static_cast<uint32_t>(rts.colors.size() + 1);
-	renderPassState.clearColors.resize(numClearValues);
-
-	renderPassState.beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassState.beginInfo.renderPass = VK_NULL_HANDLE;
-	renderPassState.beginInfo.framebuffer = VK_NULL_HANDLE;
-	renderPassState.beginInfo.renderArea.offset = {0, 0};
-	renderPassState.beginInfo.renderArea.extent.width = static_cast<uint32_t>(pixelw);
-	renderPassState.beginInfo.renderArea.extent.height = static_cast<uint32_t>(pixelh);
-	renderPassState.beginInfo.clearValueCount = numClearValues;
-	renderPassState.beginInfo.pClearValues = renderPassState.clearColors.data();
+	if (!renderPassState.colorAttachments.empty())
+	{
+		renderPassState.renderingInfo.colorAttachmentCount = renderPassState.colorAttachments.size();
+		renderPassState.renderingInfo.pColorAttachments = renderPassState.colorAttachments.data();
+	}
+	else
+	{
+		renderPassState.renderingInfo.colorAttachmentCount = 0;
+		renderPassState.renderingInfo.pColorAttachments = nullptr;
+	}
 
 	renderPassState.isWindow = false;
-	renderPassState.renderPassConfiguration = renderPassConfiguration;
-	renderPassState.framebufferConfiguration = configuration;
 	renderPassState.pipeline = VK_NULL_HANDLE;
-	renderPassState.width = static_cast<float>(pixelw);
-	renderPassState.height = static_cast<float>(pixelh);
-	renderPassState.msaa = msaa;
-	renderPassState.numColorAttachments = static_cast<uint32_t>(rts.colors.size());
 	renderPassState.packedColorAttachmentFormats = 0;
 	for (size_t i = 0; i < rts.colors.size(); i++)
 		renderPassState.packedColorAttachmentFormats |= ((uint64)rts.colors[i].texture->getPixelFormat()) << (i * 8ull);
@@ -3020,19 +2778,14 @@ void Graphics::startRenderPass()
 	VkViewport viewport{};
 	viewport.x = 0.0f;
 	viewport.y = 0.0f;
-	viewport.width = renderPassState.width;
-	viewport.height = renderPassState.height;
+	viewport.width = (float) renderPassState.renderingInfo.renderArea.extent.width;
+	viewport.height = (float) renderPassState.renderingInfo.renderArea.extent.height;
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
 
 	vkCmdSetViewport(commandBuffers.at(currentFrame), 0, 1, &viewport);
 
-	renderPassState.beginInfo.renderPass = getRenderPass(renderPassState.renderPassConfiguration);
-
-	renderPassState.framebufferConfiguration.staticData.renderPass = renderPassState.beginInfo.renderPass;
-	renderPassState.beginInfo.framebuffer = getFramebuffer(renderPassState.framebufferConfiguration);
-
-	vkCmdBeginRenderPass(commandBuffers.at(currentFrame), &renderPassState.beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdBeginRendering(commandBuffers.at(currentFrame), &renderPassState.renderingInfo);
 
 	applyScissor();
 }
@@ -3041,13 +2794,13 @@ void Graphics::endRenderPass()
 {
 	renderPassState.active = false;
 
-	vkCmdEndRenderPass(commandBuffers.at(currentFrame));
+	vkCmdEndRendering(commandBuffers.at(currentFrame));
 
-	for (auto &colorAttachment : renderPassState.renderPassConfiguration.colorAttachments)
+	for (auto &colorAttachment : renderPassState.colorAttachments)
 		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 
-	renderPassState.renderPassConfiguration.staticData.depthStencilAttachment.depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	renderPassState.renderPassConfiguration.staticData.depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	renderPassState.depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	renderPassState.stencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 }
 
 VkSampler Graphics::createSampler(const SamplerState &samplerState)
@@ -3310,6 +3063,15 @@ VkPipeline Graphics::createGraphicsPipeline(Shader *shader, const GraphicsPipeli
 	dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 	dynamicState.pDynamicStates = dynamicStates.data();
 
+	VkPipelineRenderingCreateInfoKHR pipelineRenderingInfo{};
+	pipelineRenderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+	pipelineRenderingInfo.colorAttachmentCount = configuration.numColorAttachments;
+	pipelineRenderingInfo.pColorAttachmentFormats = configuration.colorFormats.data();
+	pipelineRenderingInfo.depthAttachmentFormat = configuration.depthStencilFormat;
+	pipelineRenderingInfo.stencilAttachmentFormat = configuration.depthStencilFormat;
+
+	pipelineInfo.pNext = &pipelineRenderingInfo;
+	pipelineInfo.renderPass = VK_NULL_HANDLE;
 	pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
 	pipelineInfo.pStages = shaderStages.data();
 	pipelineInfo.pVertexInputState = &vertexInputInfo;
@@ -3323,7 +3085,6 @@ VkPipeline Graphics::createGraphicsPipeline(Shader *shader, const GraphicsPipeli
 	pipelineInfo.subpass = 0;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
-	pipelineInfo.renderPass = configuration.renderPass;
 
 	VkPipeline graphicsPipeline;
 	VkResult result = vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineInfo, nullptr, &graphicsPipeline);
@@ -3511,7 +3272,6 @@ void Graphics::createDepthResources()
 	imageViewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	imageViewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 	imageViewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-	imageViewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 	if (backbufferSettings.depth)
 		imageViewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
 	if (backbufferSettings.stencil)
@@ -3615,14 +3375,6 @@ void Graphics::cleanup()
 		vkDestroySampler(device, p.second, nullptr);
 	samplers.clear();
 
-	for (const auto &entry : renderPasses)
-		vkDestroyRenderPass(device, entry.second, nullptr);
-	renderPasses.clear();
-
-	for (const auto &entry : framebuffers)
-		vkDestroyFramebuffer(device, entry.second, nullptr);
-	framebuffers.clear();
-
 	if (commandPool != VK_NULL_HANDLE)
 	{
 		vkDestroyCommandPool(device, commandPool, nullptr);
@@ -3648,8 +3400,6 @@ void Graphics::cleanupSwapChain(bool destroySwapChainObject)
 {
 	if (colorImage)
 	{
-		cleanupFramebuffers(colorImageView, swapChainPixelFormat);
-
 		vkDestroyImageView(device, colorImageView, nullptr);
 		colorImageView = VK_NULL_HANDLE;
 
@@ -3658,8 +3408,6 @@ void Graphics::cleanupSwapChain(bool destroySwapChainObject)
 	}
 	if (depthImage)
 	{
-		cleanupFramebuffers(depthImageView, depthStencilPixelFormat);
-
 		vkDestroyImageView(device, depthImageView, nullptr);
 		depthImageView = VK_NULL_HANDLE;
 
@@ -3668,7 +3416,6 @@ void Graphics::cleanupSwapChain(bool destroySwapChainObject)
 	}
 	for (const auto &swapChainImageView : swapChainImageViews)
 	{
-		cleanupFramebuffers(swapChainImageView, swapChainPixelFormat);
 		vkDestroyImageView(device, swapChainImageView, nullptr);
 	}
 	swapChainImageViews.clear();

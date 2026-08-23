@@ -37,6 +37,7 @@
 #include <unordered_map>
 #include <queue>
 #include <set>
+#include <array>
 
 
 namespace love
@@ -48,7 +49,8 @@ namespace vulkan
 
 struct GraphicsPipelineConfigurationCore
 {
-	VkRenderPass renderPass;
+	std::array<VkFormat, 8> colorFormats{VK_FORMAT_UNDEFINED};
+	VkFormat depthStencilFormat;
 	VertexAttributesID attributesID;
 	bool wireFrame;
 	uint32 blendStateKey;
